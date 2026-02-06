@@ -114,7 +114,7 @@ export class CommandInput extends BoxRenderable {
       id: "command-help",
       flexGrow: 1,
     });
-    helpText.content = t`${dim("↑↓/jk navigate  Tab complete  Enter execute  Esc close")}`;
+    helpText.content = t`${dim("↑↓/jk navigate  Tab complete  Enter execute  Esc clear/close")}`;
     helpRow.add(helpText);
     this.add(helpRow);
 
@@ -217,7 +217,15 @@ export class CommandInput extends BoxRenderable {
   handleKey(key: string): boolean {
     switch (key) {
       case "escape":
-        this.onCloseCallback();
+        // Clear search first, close on second escape
+        if (this.query.length > 0) {
+          this.query = "";
+          this.selectedIndex = 0;
+          this.updateDisplay();
+          this.updateSuggestions();
+        } else {
+          this.onCloseCallback();
+        }
         return true;
 
       case "return":
