@@ -70,6 +70,7 @@ export interface AppState {
 
   // UI State
   commandPaletteOpen: boolean;
+  commandInputOpen: boolean;
   namespaceSelectorOpen: boolean;
   helpOverlayOpen: boolean;
   searchQuery: string;
@@ -111,6 +112,7 @@ export const initialState: AppState = {
   taskQueues: new Map(),
 
   commandPaletteOpen: false,
+  commandInputOpen: false,
   namespaceSelectorOpen: false,
   helpOverlayOpen: false,
   searchQuery: "",
@@ -143,6 +145,7 @@ export type Action =
   | { type: "SET_SEARCH_QUERY"; payload: string }
   | { type: "SET_FILTERS"; payload: FilterCriteria }
   | { type: "TOGGLE_COMMAND_PALETTE" }
+  | { type: "SET_COMMAND_INPUT_OPEN"; payload: boolean }
   | { type: "SET_NAMESPACE_SELECTOR_OPEN"; payload: boolean }
   | { type: "SET_HELP_OVERLAY_OPEN"; payload: boolean }
   | { type: "SET_POLLING_ENABLED"; payload: boolean }

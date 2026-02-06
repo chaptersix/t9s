@@ -8,10 +8,10 @@ import { getDefaultConfig } from "./config";
 import { createStore, type Store } from "./store";
 import { createTemporalClient, type TemporalClient } from "./data/temporal/client";
 import { Shell } from "./components/layout";
-import { ConfirmModal, type ConfirmationType, CommandPalette, type Command, HelpOverlay, ErrorToast, NamespaceSelector } from "./components/overlay";
+import { ConfirmModal, type ConfirmationType, CommandPalette, type Command, CommandInput, HelpOverlay, ErrorToast, NamespaceSelector } from "./components/overlay";
 // Error utilities available for enhanced error display
 // import { getUserFriendlyError, formatErrorForStatusBar } from "./data/temporal/errors";
-import { createKeyHandler, type KeyContext, type KeyAction } from "./input";
+import { createKeyHandler, parseCommand, type KeyContext, type KeyAction } from "./input";
 import { WorkflowList, WorkflowDetail } from "./views/workflows";
 import { ScheduleList, ScheduleDetail } from "./views/schedules";
 import { loadSavedViews, addSavedView, type SavedView } from "./config/savedViews";
@@ -33,6 +33,7 @@ let currentClient: TemporalClient | null = null;
 let currentStore: Store | null = null;
 let activeModal: ConfirmModal | null = null;
 let commandPalette: CommandPalette | null = null;
+let commandInput: CommandInput | null = null;
 let helpOverlay: HelpOverlay | null = null;
 let errorToast: ErrorToast | null = null;
 let namespaceSelector: NamespaceSelector | null = null;
@@ -189,6 +190,12 @@ function setupKeyHandlers(
       if (handled) return;
     }
 
+    // Handle command input keys (k9s-style : commands)
+    if (commandInput) {
+      const handled = commandInput.handleKey(key.name);
+      if (handled) return;
+    }
+
     // Handle modal keys
     if (activeModal) {
       const handled = activeModal.handleKey(key.name);
@@ -255,6 +262,12 @@ function handleKeyAction(
         closeCommandPalette(renderer, store);
       } else {
         showCommandPalette(renderer, store, client);
+      }
+      break;
+
+    case "OPEN_COMMAND_INPUT":
+      if (!commandInput) {
+        showCommandInput(renderer, store, client);
       }
       break;
 
@@ -929,6 +942,82 @@ function closeCommandPalette(renderer: CliRenderer, store: Store): void {
     commandPalette.destroy();
     commandPalette = null;
     store.dispatch({ type: "TOGGLE_COMMAND_PALETTE" });
+  }
+}
+
+function showCommandInput(
+  renderer: CliRenderer,
+  store: Store,
+  client: TemporalClient
+): void {
+  if (commandInput) return;
+
+  commandInput = new CommandInput(renderer, {
+    onExecute: (input) => {
+      closeCommandInput(renderer, store);
+      executeColonCommand(input, renderer, store, client);
+    },
+    onClose: () => {
+      closeCommandInput(renderer, store);
+    },
+  });
+
+  store.dispatch({ type: "SET_COMMAND_INPUT_OPEN", payload: true });
+  renderer.root.add(commandInput);
+}
+
+function closeCommandInput(renderer: CliRenderer, store: Store): void {
+  if (commandInput) {
+    renderer.root.remove(commandInput.id);
+    commandInput.destroy();
+    commandInput = null;
+    store.dispatch({ type: "SET_COMMAND_INPUT_OPEN", payload: false });
+  }
+}
+
+function executeColonCommand(
+  input: string,
+  renderer: CliRenderer,
+  store: Store,
+  client: TemporalClient
+): void {
+  const parsed = parseCommand(input);
+  if (!parsed) {
+    store.dispatch({ type: "SET_ERROR", payload: `Unknown command: ${input}` });
+    return;
+  }
+
+  switch (parsed.command) {
+    case "workflows":
+      navigateToWorkflowList(renderer);
+      break;
+
+    case "schedules":
+      navigateToScheduleList(renderer);
+      break;
+
+    case "taskqueues":
+      store.dispatch({ type: "SET_ACTIVE_VIEW", payload: "task-queues" });
+      break;
+
+    case "namespace":
+      if (parsed.args.length > 0) {
+        // Direct namespace switch: :ns default
+        const ns = parsed.args[0]!;
+        switchNamespace(store, client, ns);
+      } else {
+        // Open namespace selector: :ns
+        showNamespaceSelector(renderer, store, client);
+      }
+      break;
+
+    case "quit":
+      renderer.destroy();
+      break;
+
+    case "help":
+      showHelpOverlay(renderer, store);
+      break;
   }
 }
 
