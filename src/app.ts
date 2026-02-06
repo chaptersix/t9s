@@ -8,7 +8,7 @@ import { getDefaultConfig } from "./config";
 import { createStore, type Store } from "./store";
 import { createTemporalClient, type TemporalClient } from "./data/temporal/client";
 import { Shell } from "./components/layout";
-import { ConfirmModal, type ConfirmationType, CommandPalette, type Command, CommandInput, HelpOverlay, ErrorToast, NamespaceSelector } from "./components/overlay";
+import { ConfirmModal, type ConfirmationType, CommandPalette, type Command, CommandInput, type InputMode, HelpOverlay, ErrorToast, NamespaceSelector } from "./components/overlay";
 // Error utilities available for enhanced error display
 // import { getUserFriendlyError, formatErrorForStatusBar } from "./data/temporal/errors";
 import { createKeyHandler, parseCommand, type KeyContext, type KeyAction } from "./input";
@@ -267,7 +267,7 @@ function handleKeyAction(
 
     case "OPEN_COMMAND_INPUT":
       if (!commandInput) {
-        showCommandInput(renderer, store, client);
+        showCommandInput(renderer, store, client, "command");
       }
       break;
 
@@ -420,8 +420,8 @@ function handleKeyAction(
       break;
 
     case "SEARCH":
-      if (activeWorkflowList) {
-        activeWorkflowList.focusSearch();
+      if (!commandInput) {
+        showCommandInput(renderer, store, client, "search");
       }
       break;
 
@@ -948,14 +948,23 @@ function closeCommandPalette(renderer: CliRenderer, store: Store): void {
 function showCommandInput(
   renderer: CliRenderer,
   store: Store,
-  client: TemporalClient
+  client: TemporalClient,
+  mode: InputMode
 ): void {
   if (commandInput) return;
 
+  const currentSearchQuery = store.getState().searchQuery;
+
   commandInput = new CommandInput(renderer, {
+    mode,
+    initialQuery: mode === "search" ? currentSearchQuery : undefined,
     onExecute: (input) => {
       closeCommandInput(renderer, store);
       executeColonCommand(input, renderer, store, client);
+    },
+    onSearch: (query) => {
+      // Update store search query for filtering
+      store.dispatch({ type: "SET_SEARCH_QUERY", payload: query });
     },
     onClose: () => {
       closeCommandInput(renderer, store);

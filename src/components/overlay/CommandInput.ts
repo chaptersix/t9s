@@ -1,9 +1,9 @@
 /**
- * CommandInput - k9s-style command input overlay
+ * CommandInput - k9s-style command/search input overlay
  *
- * Appears at the top of the screen when : is pressed.
- * Shows autocomplete suggestions as you type.
- * Accepts commands like :wf, :sch, :ns, :q
+ * Appears at the top of the screen when : or / is pressed.
+ * In command mode (:), shows autocomplete suggestions for commands.
+ * In search mode (/), provides search input for filtering current view.
  */
 
 import {
@@ -24,8 +24,13 @@ import {
   getAllCommands,
 } from "../../input/commands";
 
+export type InputMode = "command" | "search";
+
 export interface CommandInputOptions extends Omit<BoxOptions, "height" | "width"> {
+  mode: InputMode;
+  initialQuery?: string;
   onExecute: (command: string) => void;
+  onSearch?: (query: string) => void;
   onClose: () => void;
 }
 
@@ -36,6 +41,7 @@ interface SuggestionItem {
 }
 
 export class CommandInput extends BoxRenderable {
+  private mode: InputMode;
   private inputText: TextRenderable;
   private suggestionsContainer: ScrollBoxRenderable;
   private suggestionItems: BoxRenderable[] = [];
@@ -43,9 +49,13 @@ export class CommandInput extends BoxRenderable {
   private suggestions: SuggestionItem[] = [];
   private selectedIndex = 0;
   private onExecuteCallback: (command: string) => void;
+  private onSearchCallback?: (query: string) => void;
   private onCloseCallback: () => void;
 
   constructor(ctx: RenderContext, options: CommandInputOptions) {
+    const isSearch = options.mode === "search";
+    const height = isSearch ? 3 : 12;
+
     super(ctx, {
       ...options,
       id: options.id ?? "command-input",
@@ -53,15 +63,18 @@ export class CommandInput extends BoxRenderable {
       top: 0,
       left: 0,
       width: "100%",
-      height: 12,
+      height,
       backgroundColor: "#0f0f23",
       flexDirection: "column",
       zIndex: 1000,
       borderStyle: "single",
-      borderColor: "#3d5a80",
+      borderColor: isSearch ? "#4a9eff" : "#3d5a80",
     });
 
+    this.mode = options.mode;
+    this.query = options.initialQuery ?? "";
     this.onExecuteCallback = options.onExecute;
+    this.onSearchCallback = options.onSearch;
     this.onCloseCallback = options.onClose;
 
     // Input row at top
@@ -82,52 +95,81 @@ export class CommandInput extends BoxRenderable {
     inputRow.add(this.inputText);
     this.add(inputRow);
 
-    // Divider
-    const divider = new TextRenderable(ctx, {
-      id: "command-divider",
-      height: 1,
-      width: "100%",
-      paddingLeft: 1,
-    });
-    divider.content = t`${dim("─".repeat(60))}`;
-    this.add(divider);
+    if (!isSearch) {
+      // Command mode: show suggestions panel
+      const divider = new TextRenderable(ctx, {
+        id: "command-divider",
+        height: 1,
+        width: "100%",
+        paddingLeft: 1,
+      });
+      divider.content = t`${dim("─".repeat(60))}`;
+      this.add(divider);
 
-    // Suggestions container with scrolling
-    this.suggestionsContainer = new ScrollBoxRenderable(ctx, {
-      id: "suggestions-container",
-      flexGrow: 1,
-      width: "100%",
-      scrollY: true,
-      paddingLeft: 1,
-    });
-    this.add(this.suggestionsContainer);
+      // Suggestions container with scrolling
+      this.suggestionsContainer = new ScrollBoxRenderable(ctx, {
+        id: "suggestions-container",
+        flexGrow: 1,
+        width: "100%",
+        scrollY: true,
+        paddingLeft: 1,
+      });
+      this.add(this.suggestionsContainer);
 
-    // Help text at bottom
-    const helpRow = new BoxRenderable(ctx, {
-      id: "command-help-row",
-      height: 1,
-      width: "100%",
-      paddingLeft: 1,
-      backgroundColor: "#1a1a2e",
-    });
-    const helpText = new TextRenderable(ctx, {
-      id: "command-help",
-      flexGrow: 1,
-    });
-    helpText.content = t`${dim("↑↓/jk navigate  Tab complete  Enter execute  Esc clear/close")}`;
-    helpRow.add(helpText);
-    this.add(helpRow);
+      // Help text at bottom
+      const helpRow = new BoxRenderable(ctx, {
+        id: "command-help-row",
+        height: 1,
+        width: "100%",
+        paddingLeft: 1,
+        backgroundColor: "#1a1a2e",
+      });
+      const helpText = new TextRenderable(ctx, {
+        id: "command-help",
+        flexGrow: 1,
+      });
+      helpText.content = t`${dim("↑↓/jk navigate  Tab complete  Enter execute  Esc clear/close")}`;
+      helpRow.add(helpText);
+      this.add(helpRow);
+
+      this.updateSuggestions();
+    } else {
+      // Search mode: simpler layout with just help text
+      const helpRow = new BoxRenderable(ctx, {
+        id: "search-help-row",
+        height: 1,
+        width: "100%",
+        paddingLeft: 1,
+        backgroundColor: "#1a1a2e",
+      });
+      const helpText = new TextRenderable(ctx, {
+        id: "search-help",
+        flexGrow: 1,
+      });
+      helpText.content = t`${dim("Enter to filter  Esc clear/close")}`;
+      helpRow.add(helpText);
+      this.add(helpRow);
+
+      // Create empty suggestions container for search mode
+      this.suggestionsContainer = new ScrollBoxRenderable(ctx, {
+        id: "suggestions-container-hidden",
+        height: 0,
+        width: 0,
+      });
+    }
 
     this.updateDisplay();
-    this.updateSuggestions();
   }
 
   private updateDisplay(): void {
     const cursor = cyan("█");
-    this.inputText.content = t`:${this.query}${cursor}`;
+    const prefix = this.mode === "search" ? "/" : ":";
+    this.inputText.content = t`${prefix}${this.query}${cursor}`;
   }
 
   private updateSuggestions(): void {
+    if (this.mode === "search") return;
+
     // Clear existing items
     for (const item of this.suggestionItems) {
       this.suggestionsContainer.remove(item.id);
@@ -222,7 +264,13 @@ export class CommandInput extends BoxRenderable {
           this.query = "";
           this.selectedIndex = 0;
           this.updateDisplay();
-          this.updateSuggestions();
+          if (this.mode === "command") {
+            this.updateSuggestions();
+          }
+          // In search mode, also notify to clear filter
+          if (this.mode === "search" && this.onSearchCallback) {
+            this.onSearchCallback("");
+          }
         } else {
           this.onCloseCallback();
         }
@@ -234,17 +282,23 @@ export class CommandInput extends BoxRenderable {
         return true;
 
       case "tab":
-        this.completeFromSelection();
+        if (this.mode === "command") {
+          this.completeFromSelection();
+        }
         return true;
 
       case "up":
       case "k":
-        this.moveUp();
+        if (this.mode === "command") {
+          this.moveUp();
+        }
         return true;
 
       case "down":
       case "j":
-        this.moveDown();
+        if (this.mode === "command") {
+          this.moveDown();
+        }
         return true;
 
       case "backspace":
@@ -252,23 +306,41 @@ export class CommandInput extends BoxRenderable {
           this.query = this.query.slice(0, -1);
           this.selectedIndex = 0;
           this.updateDisplay();
-          this.updateSuggestions();
+          if (this.mode === "command") {
+            this.updateSuggestions();
+          } else if (this.onSearchCallback) {
+            // Live search as you type
+            this.onSearchCallback(this.query);
+          }
         }
         return true;
 
       case "space":
         this.query += " ";
         this.updateDisplay();
-        this.updateSuggestions();
+        if (this.mode === "command") {
+          this.updateSuggestions();
+        } else if (this.onSearchCallback) {
+          this.onSearchCallback(this.query);
+        }
         return true;
 
       default:
-        // Accept alphanumeric, dash, underscore
-        if (key.length === 1 && /[a-zA-Z0-9\-_]/.test(key)) {
+        // Accept alphanumeric, dash, underscore, and more for search
+        const validChar = this.mode === "search"
+          ? key.length === 1
+          : key.length === 1 && /[a-zA-Z0-9\-_]/.test(key);
+
+        if (validChar) {
           this.query += key;
           this.selectedIndex = 0;
           this.updateDisplay();
-          this.updateSuggestions();
+          if (this.mode === "command") {
+            this.updateSuggestions();
+          } else if (this.onSearchCallback) {
+            // Live search as you type
+            this.onSearchCallback(this.query);
+          }
           return true;
         }
         return true; // Consume all keys when open
@@ -300,6 +372,16 @@ export class CommandInput extends BoxRenderable {
   }
 
   private executeCommand(): void {
+    if (this.mode === "search") {
+      // Search mode: apply the filter and close
+      if (this.onSearchCallback) {
+        this.onSearchCallback(this.query);
+      }
+      this.onCloseCallback();
+      return;
+    }
+
+    // Command mode
     if (this.query.trim()) {
       this.onExecuteCallback(this.query.trim());
     } else if (this.suggestions.length > 0) {
@@ -315,5 +397,9 @@ export class CommandInput extends BoxRenderable {
 
   getQuery(): string {
     return this.query;
+  }
+
+  getMode(): InputMode {
+    return this.mode;
   }
 }
