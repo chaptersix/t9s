@@ -1,47 +1,130 @@
-# Temporal TUI
+# t9s
 
-Terminal UI for Temporal workflow orchestration, built with OpenTUI.
+A terminal UI for [Temporal](https://temporal.io) — like [k9s](https://k9scli.io) for Kubernetes.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ● connected │ ns: default │ polling: 3s        │ ?:help    │
+├─────────────────────────────────────────────────────────────┤
+│ [1] Workflows  [2] Schedules  [3] Task Queues  [n] default │
+├─────────────────────────────────────────────────────────────┤
+│ Workflows (12 total)                                        │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ WORKFLOW ID       TYPE          STATUS     STARTED     │ │
+│ │►order-12345       OrderFlow     ● Running  2m ago      │ │
+│ │ payment-67890     PaymentFlow   ✓ Done     5m ago      │ │
+│ │ notify-abc        NotifyFlow    ✗ Failed   10m ago     │ │
+│ └─────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────┤
+│ j/k:navigate  Enter:open  /:search  n:namespace  ?:help    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Features
+
+- **Workflow Management** - Browse, filter, search, cancel, terminate workflows
+- **Schedule Management** - View, pause/unpause, trigger scheduled workflows
+- **Vim-style Navigation** - j/k, gg/G, Ctrl+D/U, and more
+- **Command Palette** - Quick access to all commands with Ctrl+P
+- **Real-time Updates** - Automatic polling with smart refresh
+- **Namespace Switching** - Easily switch between Temporal namespaces
+- **Keyboard-first** - Full functionality without touching the mouse
 
 ## Prerequisites
 
-- Bun runtime
-- Temporal server running with UI (`temporal server start-dev`)
-  - UI Server accessible at http://localhost:8233
+- [Bun](https://bun.sh) runtime
+- Temporal server with UI Server running at `http://localhost:8233`
+
+```bash
+# Start Temporal dev server (includes UI server)
+temporal server start-dev
+```
+
+## Installation
+
+```bash
+bun install
+```
 
 ## Usage
 
 ```bash
-# Install dependencies
-bun install
-
-# Start the TUI (runs until killed with Ctrl+C or 'q')
+# Start t9s
 bun run dev
 
-# Seed the dev server with sample workflows
-bun run seed
+# Run tests
+bun test
 
 # Type check
 bun run typecheck
-
-# Run tests
-bun run test
 ```
 
 ## Keybindings
 
 ### Navigation
-- `j/k` or `↓/↑` - Move up/down
-- `gg` - Go to top
-- `G` - Go to bottom
-- `Ctrl+D/U` - Page down/up
-- `Enter` - Select/open
-- `Esc` - Back/cancel
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `gg` | Go to top |
+| `G` | Go to bottom |
+| `Ctrl+D` | Page down |
+| `Ctrl+U` | Page up |
+| `Enter` | Select / Open |
+| `Esc` | Back / Cancel |
+| `Tab` | Next tab (in detail views) |
+
+### Views
+| Key | Action |
+|-----|--------|
+| `1` | Workflows |
+| `2` | Schedules |
+| `3` | Task Queues |
+| `n` | Switch namespace |
+| `Ctrl+P` | Command palette |
+| `?` | Help |
+| `q` | Quit |
 
 ### Workflow Actions
-- `c` - Cancel workflow (graceful)
-- `t` - Terminate workflow (immediate)
-- `r` - Refresh
+| Key | Action |
+|-----|--------|
+| `/` | Search workflows |
+| `c` | Cancel workflow |
+| `t` | Terminate workflow |
+| `s` | Signal workflow |
+| `Ctrl+R` | Refresh |
 
-### Global
-- `1-4` - Switch views
-- `q` or `Ctrl+Q` - Quit
+### Schedule Actions
+| Key | Action |
+|-----|--------|
+| `p` | Pause / Unpause |
+| `T` | Trigger now |
+| `d` | Delete |
+
+## Architecture
+
+```
+src/
+├── app.ts              # Application entry and orchestration
+├── components/         # UI components
+│   ├── layout/         # Shell, StatusBar, TabBar, Footer
+│   ├── overlay/        # CommandPalette, Modals, HelpOverlay
+│   └── common/         # Table, FilterBar, Loading
+├── views/              # Main views
+│   ├── workflows/      # WorkflowList, WorkflowDetail
+│   └── schedules/      # ScheduleList, ScheduleDetail
+├── store/              # State management (Zustand-like)
+├── data/temporal/      # Temporal HTTP client
+├── input/              # Key handling
+└── plugins/            # Plugin system
+```
+
+## Configuration
+
+t9s connects to the Temporal UI Server HTTP API at `http://localhost:8233` by default.
+
+Debug logs are written to `~/.temporal-tui.log` when running in development mode.
+
+## License
+
+MIT
