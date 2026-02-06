@@ -7,25 +7,29 @@ export interface ParsedCommand {
   args: string[];
 }
 
+export interface CommandInfo {
+  name: string;
+  alias: string;
+  description: string;
+}
+
+// Command definitions with aliases and descriptions
+const COMMANDS: CommandInfo[] = [
+  { name: "workflows", alias: "wf", description: "Switch to workflows view" },
+  { name: "schedules", alias: "sch", description: "Switch to schedules view" },
+  { name: "taskqueues", alias: "tq", description: "Switch to task queues view" },
+  { name: "namespace", alias: "ns", description: "Switch namespace (:ns <name> or :ns)" },
+  { name: "quit", alias: "q", description: "Quit the application" },
+  { name: "help", alias: "h", description: "Show help" },
+];
+
 // Command aliases (short form -> canonical form)
-const COMMAND_ALIASES: Record<string, string> = {
-  wf: "workflows",
-  sch: "schedules",
-  tq: "taskqueues",
-  ns: "namespace",
-  q: "quit",
-  h: "help",
-};
+const COMMAND_ALIASES: Record<string, string> = Object.fromEntries(
+  COMMANDS.map((cmd) => [cmd.alias, cmd.name])
+);
 
 // Valid commands
-const VALID_COMMANDS = new Set([
-  "workflows",
-  "schedules",
-  "taskqueues",
-  "namespace",
-  "quit",
-  "help",
-]);
+const VALID_COMMANDS = new Set(COMMANDS.map((cmd) => cmd.name));
 
 /**
  * Parse a command string into command and arguments
@@ -84,21 +88,13 @@ export function getCommandSuggestions(partial: string): string[] {
  */
 export function getCommandHelp(command: string): string {
   const resolved = COMMAND_ALIASES[command] ?? command;
+  const cmd = COMMANDS.find((c) => c.name === resolved || c.alias === command);
+  return cmd?.description ?? "";
+}
 
-  switch (resolved) {
-    case "workflows":
-      return "Switch to workflows view";
-    case "schedules":
-      return "Switch to schedules view";
-    case "taskqueues":
-      return "Switch to task queues view";
-    case "namespace":
-      return "Switch namespace (use :ns <name> or :ns to open selector)";
-    case "quit":
-      return "Quit the application";
-    case "help":
-      return "Show help";
-    default:
-      return "";
-  }
+/**
+ * Get all available commands with their info
+ */
+export function getAllCommands(): CommandInfo[] {
+  return [...COMMANDS];
 }
