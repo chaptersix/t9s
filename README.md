@@ -49,15 +49,39 @@ bun install
 ## Usage
 
 ```bash
-# Start t9s
+t9s
+```
+
+## Development
+
+```bash
+# Clone the repo
+git clone https://github.com/chaptersix/t9s.git
+cd t9s
+
+# Install dependencies
+bun install
+
+# Start Temporal dev server (in a separate terminal)
+temporal server start-dev
+
+# Start the dev server
 bun run dev
+
+# Start with debug logging
+DEBUG=true bun run dev
 
 # Run tests
 bun test
 
 # Type check
 bun run typecheck
+
+# Seed sample workflows for testing (requires Temporal server)
+bun run seed
 ```
+
+Debug logs are written to `~/.temporal-tui.log` when `DEBUG=true` is set.
 
 ## Keybindings
 
@@ -122,8 +146,6 @@ src/
 ## Configuration
 
 t9s connects to the Temporal UI Server HTTP API at `http://localhost:8233` by default.
-
-Debug logs are written to `~/.temporal-tui.log` when running in development mode.
 
 ## License
 
