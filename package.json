@@ -1,0 +1,28 @@
+{
+  "name": "temporal-tui",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Terminal UI for Temporal workflow orchestration",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "DEBUG=true bun run src/index.ts",
+    "build": "NODE_ENV=production bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "seed": "bun run scripts/seed.ts"
+  },
+  "dependencies": {
+    "@opentui/core": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "temporal",
+    "tui",
+    "terminal",
+    "workflow"
+  ],
+  "license": "MIT"
+}
