@@ -49,7 +49,12 @@ export class TabBar extends BoxRenderable {
 
     // Subscribe to store changes
     this.unsubscribe = this.store.subscribe((state, prevState) => {
-      if (state.activeView !== prevState.activeView || state.namespace !== prevState.namespace) {
+      if (
+        state.activeView !== prevState.activeView ||
+        state.namespace !== prevState.namespace ||
+        state.workflowDetail !== prevState.workflowDetail ||
+        state.scheduleDetail !== prevState.scheduleDetail
+      ) {
         this.updateContent();
       }
     });
@@ -60,16 +65,35 @@ export class TabBar extends BoxRenderable {
     const activeView = state.activeView;
     const ns = state.namespace;
 
-    // Build tabs display with namespace selector
-    if (activeView === "workflows" || activeView === "workflow-detail") {
-      this.tabsText.content = t`${bgCyan(black(" Workflows "))} ${dim("|")} ${dim("[")}${bold("2")}${dim("]")} Schedules ${dim("|")} ${dim("[")}${bold("3")}${dim("]")} Task Queues ${dim("|")} ${dim("[")}${bold("n")}${dim("]")} ns:${ns}`;
-    } else if (activeView === "schedules") {
-      this.tabsText.content = t`${dim("[")}${bold("1")}${dim("]")} Workflows ${dim("|")} ${bgCyan(black(" Schedules "))} ${dim("|")} ${dim("[")}${bold("3")}${dim("]")} Task Queues ${dim("|")} ${dim("[")}${bold("n")}${dim("]")} ns:${ns}`;
-    } else if (activeView === "task-queues") {
-      this.tabsText.content = t`${dim("[")}${bold("1")}${dim("]")} Workflows ${dim("|")} ${dim("[")}${bold("2")}${dim("]")} Schedules ${dim("|")} ${bgCyan(black(" Task Queues "))} ${dim("|")} ${dim("[")}${bold("n")}${dim("]")} ns:${ns}`;
-    } else {
-      this.tabsText.content = t`${bgCyan(black(" Workflows "))} ${dim("|")} ${dim("[")}${bold("2")}${dim("]")} Schedules ${dim("|")} ${dim("[")}${bold("3")}${dim("]")} Task Queues ${dim("|")} ${dim("[")}${bold("n")}${dim("]")} ns:${ns}`;
+    // k9s-style breadcrumb display
+    let viewLabel = "";
+    switch (activeView) {
+      case "workflows":
+        viewLabel = "Workflows";
+        break;
+      case "workflow-detail":
+        viewLabel = "Workflows";
+        if (state.workflowDetail) {
+          viewLabel += ` > ${state.workflowDetail.workflowId}`;
+        }
+        break;
+      case "schedules":
+        viewLabel = "Schedules";
+        break;
+      case "schedule-detail":
+        viewLabel = "Schedules";
+        if (state.scheduleDetail) {
+          viewLabel += ` > ${state.scheduleDetail.scheduleId}`;
+        }
+        break;
+      case "task-queues":
+        viewLabel = "Task Queues";
+        break;
+      default:
+        viewLabel = "Workflows";
     }
+
+    this.tabsText.content = t`${bgCyan(black(` ${viewLabel} `))} ${dim("|")} ns:${bold(ns)}`;
   }
 
   destroy(): void {

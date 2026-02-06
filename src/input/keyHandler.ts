@@ -19,10 +19,7 @@ const GLOBAL_BINDINGS: KeyBinding[] = [
   { key: "p", ctrl: true, action: "TOGGLE_COMMAND_PALETTE", description: "Toggle command palette" },
   { key: "r", ctrl: true, action: "REFRESH", description: "Refresh current view" },
   { key: "?", action: "HELP", description: "Show help" },
-  { key: "1", action: "SWITCH_VIEW:workflows", description: "Switch to workflows" },
-  { key: "2", action: "SWITCH_VIEW:schedules", description: "Switch to schedules" },
-  { key: "3", action: "SWITCH_VIEW:task-queues", description: "Switch to task queues" },
-  { key: "n", action: "TOGGLE_NAMESPACE_SELECTOR", description: "Select namespace" },
+  { key: ":", action: "OPEN_COMMAND_INPUT", description: "Open command input" },
 ];
 
 // Navigation bindings (vim-style)
@@ -187,6 +184,7 @@ function parseAction(actionStr: string): KeyAction | null {
     CYCLE_FILTER: { type: "CYCLE_FILTER" },
     TOGGLE_VIEW_MODE: { type: "TOGGLE_VIEW_MODE" },
     TOGGLE_NAMESPACE_SELECTOR: { type: "TOGGLE_NAMESPACE_SELECTOR" },
+    OPEN_COMMAND_INPUT: { type: "OPEN_COMMAND_INPUT" },
   };
 
   return actionMap[actionStr] || null;

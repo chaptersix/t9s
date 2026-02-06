@@ -19,6 +19,9 @@ export interface FooterOptions extends Omit<BoxOptions, "height"> {
 
 function getKeyHints(state: AppState): string {
   // Overlay-specific hints take priority
+  if (state.commandInputOpen) {
+    return "Type command  Enter:execute  Esc:cancel";
+  }
   if (state.namespaceSelectorOpen) {
     return "j/k:navigate  Enter:select  Esc:close";
   }
@@ -29,20 +32,20 @@ function getKeyHints(state: AppState): string {
     return "j/k:navigate  Enter:select  Esc:close";
   }
 
-  // View-specific hints
-  const common = "n:namespace  q:quit  ?:help  Ctrl+P:palette";
+  // View-specific hints - k9s style with : commands
+  const common = "::command  /:search  ?:help";
 
   switch (state.activeView) {
     case "workflows":
-      return `j/k:navigate  Enter:open  s:signal  /:search  ${common}`;
+      return `j/k:navigate  Enter:open  ${common}`;
     case "workflow-detail":
-      return `Tab:tabs  s:signal  c:cancel  t:terminate  Esc:back  ${common}`;
+      return `Tab:tabs  c:cancel  t:terminate  Esc:back  ${common}`;
     case "schedules":
       return `j/k:navigate  p:toggle  T:trigger  Enter:details  ${common}`;
     case "schedule-detail":
       return `Tab:tabs  p:toggle  T:trigger  Esc:back  ${common}`;
     case "task-queues":
-      return `j/k:navigate  Enter:details  r:refresh  ${common}`;
+      return `j/k:navigate  Enter:details  ${common}`;
     default:
       return common;
   }
@@ -81,6 +84,7 @@ export class Footer extends BoxRenderable {
       if (
         state.activeView !== prevState.activeView ||
         state.commandPaletteOpen !== prevState.commandPaletteOpen ||
+        state.commandInputOpen !== prevState.commandInputOpen ||
         state.namespaceSelectorOpen !== prevState.namespaceSelectorOpen ||
         state.helpOverlayOpen !== prevState.helpOverlayOpen
       ) {

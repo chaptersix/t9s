@@ -9,13 +9,12 @@ import {
 } from "@opentui/core";
 import type { Store } from "../../store";
 import type { WorkflowExecution } from "../../data/temporal/types";
-import { Table, type Column, FilterBar } from "../../components/common";
+import { Table, type Column } from "../../components/common";
 import { formatRelativeTime, truncate } from "../../utils/time";
 
 export interface WorkflowListOptions extends BoxOptions {
   store: Store;
   onSelectWorkflow?: (workflow: WorkflowExecution) => void;
-  onFilterChange?: () => void;
 }
 
 function getStatusIndicator(status: string | undefined): string {
@@ -76,9 +75,7 @@ export class WorkflowList extends BoxRenderable {
   private store: Store;
   private unsubscribe: (() => void) | null = null;
   private table: Table<WorkflowExecution>;
-  private filterBar: FilterBar;
   private onSelectCallback?: (workflow: WorkflowExecution) => void;
-  private onFilterChangeCallback?: () => void;
 
   constructor(ctx: RenderContext, options: WorkflowListOptions) {
     super(ctx, {
@@ -91,19 +88,6 @@ export class WorkflowList extends BoxRenderable {
 
     this.store = options.store;
     this.onSelectCallback = options.onSelectWorkflow;
-    this.onFilterChangeCallback = options.onFilterChange;
-
-    // Create filter bar
-    this.filterBar = new FilterBar(ctx, {
-      id: "workflow-filter-bar",
-      store: this.store,
-      onFilterChange: () => {
-        if (this.onFilterChangeCallback) {
-          this.onFilterChangeCallback();
-        }
-      },
-    });
-    this.add(this.filterBar);
 
     // Create table
     const state = this.store.getState();
@@ -164,27 +148,6 @@ export class WorkflowList extends BoxRenderable {
 
   select(): void {
     this.table.select();
-  }
-
-  // Filter methods
-  focusSearch(): void {
-    this.filterBar.focusSearch();
-  }
-
-  isInSearchMode(): boolean {
-    return this.filterBar.isInSearchMode();
-  }
-
-  handleSearchKey(key: string): boolean {
-    return this.filterBar.handleSearchKey(key);
-  }
-
-  cycleStatus(): void {
-    this.filterBar.cycleStatus();
-  }
-
-  clearFilters(): void {
-    this.filterBar.clearFilters();
   }
 
   get selectedWorkflow(): WorkflowExecution | undefined {

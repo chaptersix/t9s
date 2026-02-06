@@ -157,26 +157,20 @@ describe("Key Handler", () => {
     });
   });
 
-  describe("view switching", () => {
-    test("1 switches to workflows", () => {
+  describe("command input", () => {
+    test(": opens command input", () => {
       const handler = createKeyHandler();
-      const action = handler.handleKey(createKeyEvent("1"), "schedules");
+      const action = handler.handleKey(createKeyEvent(":"), "workflows");
 
-      expect(action).toEqual({ type: "SWITCH_VIEW", payload: "workflows" });
+      expect(action).toEqual({ type: "OPEN_COMMAND_INPUT" });
     });
 
-    test("2 switches to schedules", () => {
+    test(": works from any context", () => {
       const handler = createKeyHandler();
-      const action = handler.handleKey(createKeyEvent("2"), "workflows");
 
-      expect(action).toEqual({ type: "SWITCH_VIEW", payload: "schedules" });
-    });
-
-    test("3 switches to task-queues", () => {
-      const handler = createKeyHandler();
-      const action = handler.handleKey(createKeyEvent("3"), "workflows");
-
-      expect(action).toEqual({ type: "SWITCH_VIEW", payload: "task-queues" });
+      expect(handler.handleKey(createKeyEvent(":"), "schedules")).toEqual({ type: "OPEN_COMMAND_INPUT" });
+      expect(handler.handleKey(createKeyEvent(":"), "workflow-detail")).toEqual({ type: "OPEN_COMMAND_INPUT" });
+      expect(handler.handleKey(createKeyEvent(":"), "schedule-detail")).toEqual({ type: "OPEN_COMMAND_INPUT" });
     });
   });
 

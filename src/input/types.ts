@@ -63,6 +63,7 @@ export type KeyAction =
   // UI actions
   | { type: "TOGGLE_COMMAND_PALETTE" }
   | { type: "TOGGLE_NAMESPACE_SELECTOR" }
+  | { type: "OPEN_COMMAND_INPUT" }
   | { type: "SEARCH" }
   | { type: "CYCLE_FILTER" }
   | { type: "TOGGLE_VIEW_MODE" }

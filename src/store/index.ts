@@ -63,6 +63,9 @@ function reducer(state: AppState, action: Action): AppState {
     case "TOGGLE_COMMAND_PALETTE":
       return { ...state, commandPaletteOpen: !state.commandPaletteOpen };
 
+    case "SET_COMMAND_INPUT_OPEN":
+      return { ...state, commandInputOpen: action.payload };
+
     case "SET_NAMESPACE_SELECTOR_OPEN":
       return { ...state, namespaceSelectorOpen: action.payload };
 
