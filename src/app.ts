@@ -122,10 +122,6 @@ export async function createApp(config?: Partial<AppConfig>): Promise<App> {
             await navigateToWorkflowDetail(renderer, workflow.workflowId, workflow.runId);
           }
         },
-        onFilterChange: async () => {
-          // Reload workflows with new filters
-          await loadWorkflows(store, temporalClient);
-        },
       });
       shell.setContent(activeWorkflowList);
 
@@ -202,11 +198,6 @@ function setupKeyHandlers(
       if (handled) return;
     }
 
-    // Handle search mode in workflow list
-    if (activeWorkflowList?.isInSearchMode()) {
-      const handled = activeWorkflowList.handleSearchKey(key.name);
-      if (handled) return;
-    }
 
     // Determine current context
     const state = store.getState();
@@ -425,11 +416,6 @@ function handleKeyAction(
       }
       break;
 
-    case "CYCLE_FILTER":
-      if (activeWorkflowList) {
-        activeWorkflowList.cycleStatus();
-      }
-      break;
   }
 }
 
@@ -479,16 +465,12 @@ function navigateToWorkflowList(renderer: CliRenderer): void {
   currentStore.dispatch({ type: "SET_WORKFLOW_HISTORY", payload: [] });
 
   const store = currentStore;
-  const client = currentClient;
 
   // Create list view
   activeWorkflowList = new WorkflowList(renderer, {
     store,
     onSelectWorkflow: async (workflow) => {
       await navigateToWorkflowDetail(renderer, workflow.workflowId, workflow.runId);
-    },
-    onFilterChange: async () => {
-      await loadWorkflows(store, client);
     },
   });
 
@@ -810,8 +792,8 @@ function getCommands(
       shortcut: "/",
       category: "Workflows",
       action: () => {
-        if (activeWorkflowList) {
-          activeWorkflowList.focusSearch();
+        if (!commandInput) {
+          showCommandInput(renderer, store, client, "search");
         }
       },
     },
@@ -831,9 +813,6 @@ function getCommands(
       description: "Remove all active filters",
       category: "Workflows",
       action: () => {
-        if (activeWorkflowList) {
-          activeWorkflowList.clearFilters();
-        }
         store.dispatch({ type: "SET_FILTERS", payload: {} });
         loadWorkflows(store, client);
       },
@@ -953,18 +932,20 @@ function showCommandInput(
 ): void {
   if (commandInput) return;
 
-  const currentSearchQuery = store.getState().searchQuery;
+  const currentFilters = store.getState().filters;
 
   commandInput = new CommandInput(renderer, {
     mode,
-    initialQuery: mode === "search" ? currentSearchQuery : undefined,
+    initialQuery: mode === "search" ? (currentFilters.query ?? "") : undefined,
     onExecute: (input) => {
       closeCommandInput(renderer, store);
       executeColonCommand(input, renderer, store, client);
     },
-    onSearch: (query) => {
-      // Update store search query for filtering
-      store.dispatch({ type: "SET_SEARCH_QUERY", payload: query });
+    onSearch: async (query) => {
+      // Update filters and reload workflows
+      const filters = { ...store.getState().filters, query: query || undefined };
+      store.dispatch({ type: "SET_FILTERS", payload: filters });
+      await loadWorkflows(store, client);
     },
     onClose: () => {
       closeCommandInput(renderer, store);
