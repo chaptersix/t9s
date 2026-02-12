@@ -80,6 +80,7 @@ pub enum Effect {
     PauseSchedule(String, bool),
     TriggerSchedule(String),
     DeleteSchedule(String),
+    LoadMoreWorkflows,
     LoadTaskQueueDetail(String),
     SignalWorkflow(String, Option<String>, String, Option<String>),
     Quit,
@@ -129,6 +130,9 @@ pub struct App {
     pub last_refresh: Option<Instant>,
     pub error_count: u32,
 
+    // Pagination
+    pub loading_more: bool,
+
     // App
     pub should_quit: bool,
     pub last_error: Option<(String, Instant)>,
@@ -166,6 +170,8 @@ impl App {
 
             input_buffer: String::new(),
             search_query: None,
+
+            loading_more: false,
 
             polling_enabled: true,
             polling_interval: Duration::from_secs(3),
@@ -205,7 +211,7 @@ impl App {
                 } else {
                     self.navigate_down();
                 }
-                vec![]
+                self.maybe_load_more()
             }
             Action::NavigateTop => {
                 if self.is_detail_view() {
@@ -221,7 +227,7 @@ impl App {
                 } else {
                     self.navigate_bottom();
                 }
-                vec![]
+                self.maybe_load_more()
             }
             Action::PageUp => {
                 if self.is_detail_view() {
@@ -241,7 +247,7 @@ impl App {
                         self.navigate_down();
                     }
                 }
-                vec![]
+                self.maybe_load_more()
             }
             Action::Select => self.handle_select(),
             Action::Back => self.handle_back(),
@@ -343,17 +349,18 @@ impl App {
                 effects
             }
             Action::UpdateInputBuffer(buf) => {
-                self.input_buffer = buf.clone();
-                if self.input_mode == InputMode::Search {
-                    if buf.is_empty() {
-                        self.search_query = None;
-                    } else {
-                        self.search_query = Some(buf);
-                    }
-                    vec![Effect::LoadWorkflows]
+                self.input_buffer = buf;
+                vec![]
+            }
+            Action::SubmitSearch(query) => {
+                self.input_mode = InputMode::Normal;
+                if query.is_empty() {
+                    self.search_query = None;
                 } else {
-                    vec![]
+                    self.search_query = Some(query);
                 }
+                self.input_buffer.clear();
+                vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
             }
             Action::ToggleHelp => {
                 self.overlay = if self.overlay == Overlay::Help {
@@ -386,7 +393,7 @@ impl App {
             }
             Action::NextTab => {
                 if self.view == View::WorkflowDetail {
-                    self.workflow_detail_tab = (self.workflow_detail_tab + 1).min(4);
+                    self.workflow_detail_tab = (self.workflow_detail_tab + 1) % 5;
                     self.detail_scroll = 0;
                     return self.load_workflow_tab_data();
                 }
@@ -394,7 +401,7 @@ impl App {
             }
             Action::PrevTab => {
                 if self.view == View::WorkflowDetail {
-                    self.workflow_detail_tab = self.workflow_detail_tab.saturating_sub(1);
+                    self.workflow_detail_tab = if self.workflow_detail_tab == 0 { 4 } else { self.workflow_detail_tab - 1 };
                     self.detail_scroll = 0;
                     return self.load_workflow_tab_data();
                 }
@@ -405,6 +412,7 @@ impl App {
             Action::WorkflowsLoaded(workflows, next_page_token) => {
                 self.workflows = LoadState::Loaded(workflows);
                 self.next_page_token = next_page_token;
+                self.loading_more = false;
                 self.connection_status = ConnectionStatus::Connected;
                 self.reset_backoff();
                 self.last_refresh = Some(Instant::now());
@@ -413,11 +421,79 @@ impl App {
                 }
                 vec![]
             }
-            Action::WorkflowDetailLoaded(detail) => {
+            Action::MoreWorkflowsLoaded(workflows, next_page_token) => {
+                if let LoadState::Loaded(ref mut existing) = self.workflows {
+                    existing.extend(workflows);
+                }
+                self.next_page_token = next_page_token;
+                self.loading_more = false;
+                self.connection_status = ConnectionStatus::Connected;
+                self.reset_backoff();
+                vec![]
+            }
+            Action::WorkflowDetailLoaded(mut detail) => {
+                // Preserve input/output/failure extracted from history
+                if let Some(ref existing) = self.selected_workflow {
+                    if detail.input.is_none() {
+                        detail.input = existing.input.clone();
+                    }
+                    if detail.output.is_none() {
+                        detail.output = existing.output.clone();
+                    }
+                    if detail.failure.is_none() {
+                        detail.failure = existing.failure.clone();
+                    }
+                    if detail.history_length == 0 && existing.history_length > 0 {
+                        detail.history_length = existing.history_length;
+                    }
+                }
                 self.selected_workflow = Some(*detail);
                 vec![]
             }
             Action::HistoryLoaded(events) => {
+                // Extract input/output/failure from history events
+                if let Some(ref mut detail) = self.selected_workflow {
+                    for event in &events {
+                        if event.event_type.contains("WorkflowExecutionStarted")
+                            && !event.event_type.contains("Child")
+                        {
+                            if let Some(input) = event.details.get("input") {
+                                detail.input = Some(input.clone());
+                            }
+                        }
+                        if event.event_type.contains("WorkflowExecutionCompleted")
+                            && !event.event_type.contains("Child")
+                        {
+                            if let Some(result) = event.details.get("result") {
+                                detail.output = Some(result.clone());
+                            }
+                        }
+                        if event.event_type.contains("WorkflowExecutionFailed")
+                            && !event.event_type.contains("Child")
+                        {
+                            if let Some(failure) = event.details.get("failure") {
+                                detail.failure = Some(FailureInfo {
+                                    message: failure
+                                        .get("message")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    failure_type: failure
+                                        .get("source")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    stack_trace: failure
+                                        .get("stack_trace")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    cause: None,
+                                });
+                            }
+                        }
+                    }
+                    detail.history_length = events.len() as u64;
+                }
                 self.workflow_history = LoadState::Loaded(events);
                 vec![]
             }
@@ -495,13 +571,19 @@ impl App {
                         if let Some(wf) = workflows.get(idx) {
                             self.view = View::WorkflowDetail;
                             self.workflow_detail_tab = 0;
-                            self.workflow_history = LoadState::NotLoaded;
+                            self.workflow_history = LoadState::Loading;
                             self.task_queue_detail = LoadState::NotLoaded;
                             self.detail_scroll = 0;
-                            return vec![Effect::LoadWorkflowDetail(
-                                wf.workflow_id.clone(),
-                                Some(wf.run_id.clone()),
-                            )];
+                            return vec![
+                                Effect::LoadWorkflowDetail(
+                                    wf.workflow_id.clone(),
+                                    Some(wf.run_id.clone()),
+                                ),
+                                Effect::LoadHistory(
+                                    wf.workflow_id.clone(),
+                                    Some(wf.run_id.clone()),
+                                ),
+                            ];
                         }
                     }
                 }
@@ -748,6 +830,21 @@ impl App {
         let multiplier = 2u64.pow(self.error_count.min(5));
         let backoff_secs = self.base_polling_interval.as_secs() * multiplier;
         self.polling_interval = Duration::from_secs(backoff_secs.min(60));
+    }
+
+    fn maybe_load_more(&mut self) -> Vec<Effect> {
+        if self.view != View::WorkflowList || self.loading_more || self.next_page_token.is_empty() {
+            return vec![];
+        }
+        if let Some(workflows) = self.workflows.data() {
+            if let Some(selected) = self.workflow_table_state.selected() {
+                if selected + 5 >= workflows.len() {
+                    self.loading_more = true;
+                    return vec![Effect::LoadMoreWorkflows];
+                }
+            }
+        }
+        vec![]
     }
 
     fn page_height(&self) -> usize {

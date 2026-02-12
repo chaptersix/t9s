@@ -201,46 +201,26 @@ async fn run_tui(cli: Cli) -> Result<()> {
 fn render(app: &mut App, frame: &mut ratatui::Frame) {
     let area = frame.area();
 
-    let show_command = matches!(app.input_mode, InputMode::Command);
-    let show_search = matches!(app.input_mode, InputMode::Search);
+    // Dark navy background
+    frame.render_widget(
+        ratatui::widgets::Block::default().style(
+            ratatui::style::Style::default().bg(t9s::theme::BG_DARK),
+        ),
+        area,
+    );
 
-    let layout = if show_command {
-        Layout::vertical([
-            Constraint::Length(1), // Status bar
-            Constraint::Length(1), // Tab bar
-            Constraint::Fill(1),  // Content
-            Constraint::Length(1), // Suggestions
-            Constraint::Length(1), // Command input
-            Constraint::Length(1), // Footer
-        ])
-        .split(area)
-    } else if show_search {
-        Layout::vertical([
-            Constraint::Length(1), // Status bar
-            Constraint::Length(1), // Tab bar
-            Constraint::Fill(1),  // Content
-            Constraint::Length(1), // Search input
-            Constraint::Length(1), // Footer
-        ])
-        .split(area)
-    } else {
-        Layout::vertical([
-            Constraint::Length(1), // Status bar
-            Constraint::Length(1), // Tab bar
-            Constraint::Fill(1),  // Content
-            Constraint::Length(1), // Footer
-        ])
-        .split(area)
-    };
-
-    // Status bar
-    widgets::status_bar::render(app, frame, layout[0]);
+    let layout = Layout::vertical([
+        Constraint::Length(1), // Tab bar
+        Constraint::Fill(1),  // Content
+        Constraint::Length(1), // Footer
+    ])
+    .split(area);
 
     // Tab bar
-    widgets::tab_bar::render(app, frame, layout[1]);
+    widgets::tab_bar::render(app, frame, layout[0]);
 
     // Content area
-    let content_area = layout[2];
+    let content_area = layout[1];
     match app.view {
         View::WorkflowList => widgets::workflow_list::render(app, frame, content_area),
         View::WorkflowDetail => widgets::workflow_detail::render(app, frame, content_area),
@@ -248,26 +228,24 @@ fn render(app: &mut App, frame: &mut ratatui::Frame) {
         View::ScheduleDetail => widgets::schedule_detail::render(app, frame, content_area),
     }
 
-    // Command mode: suggestions + input + footer
-    if show_command {
-        widgets::command_input::render_suggestions(app, frame, layout[3]);
-        widgets::command_input::render(app, frame, layout[4]);
-        widgets::footer::render(app, frame, layout[5]);
-    } else if show_search {
-        widgets::command_input::render(app, frame, layout[3]);
-        widgets::footer::render(app, frame, layout[4]);
-    } else {
-        widgets::footer::render(app, frame, layout[3]);
-    }
+    // Footer
+    widgets::footer::render(app, frame, layout[2]);
 
     // Overlays
     match &app.overlay {
-        Overlay::Help => widgets::help_overlay::render(frame, area),
+        Overlay::Help => widgets::help_overlay::render(&app.view, frame, area),
         Overlay::Confirm(action) => widgets::confirm_modal::render(action, frame, area),
         Overlay::NamespaceSelector => {
             widgets::namespace_selector::render(app, frame, area);
         }
         Overlay::None => {}
+    }
+
+    // Input mode overlays
+    match app.input_mode {
+        InputMode::Command => widgets::command_input::render_command_modal(app, frame, area),
+        InputMode::Search => widgets::command_input::render_search_modal(app, frame, area),
+        _ => {}
     }
 
     // Error toast
@@ -287,6 +265,14 @@ fn handle_effects(
                     query: app.search_query.clone(),
                     page_size: app.page_size,
                     next_page_token: vec![],
+                });
+            }
+            Effect::LoadMoreWorkflows => {
+                cli_handle.send(CliRequest::LoadMoreWorkflows {
+                    namespace: app.namespace.clone(),
+                    query: app.search_query.clone(),
+                    page_size: app.page_size,
+                    next_page_token: app.next_page_token.clone(),
                 });
             }
             Effect::LoadWorkflowDetail(wf_id, run_id) => {

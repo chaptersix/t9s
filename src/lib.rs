@@ -7,6 +7,7 @@ pub mod event;
 pub mod input;
 #[doc(hidden)]
 pub mod proto;
+pub mod theme;
 pub mod tui;
 pub mod widgets;
 pub mod worker;

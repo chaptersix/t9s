@@ -1,10 +1,11 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, InputMode, View};
+use crate::theme;
 
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let hints = match app.input_mode {
@@ -64,15 +65,15 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         if i > 0 {
             spans.push(Span::styled("  ", Style::default()));
         }
-        spans.push(Span::styled(*key, Style::default().fg(Color::Cyan)));
+        spans.push(Span::styled(*key, Style::default().fg(theme::PURPLE)));
         spans.push(Span::styled(
             format!(":{}", desc),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme::TEXT_MUTED),
         ));
     }
 
     let line = Line::from(spans);
-    let widget = Paragraph::new(line).style(Style::default().bg(Color::Rgb(30, 30, 30)));
+    let widget = Paragraph::new(line).style(Style::default().bg(theme::BG_SURFACE));
     frame.render_widget(widget, area);
 }
 

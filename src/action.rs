@@ -32,6 +32,7 @@ pub enum Action {
     OpenSearch,
     CloseOverlay,
     SubmitCommandInput(String),
+    SubmitSearch(String),
     UpdateInputBuffer(String),
     ToggleHelp,
     SwitchNamespace(String),
@@ -42,6 +43,7 @@ pub enum Action {
 
     // Data responses
     WorkflowsLoaded(Vec<WorkflowSummary>, Vec<u8>),
+    MoreWorkflowsLoaded(Vec<WorkflowSummary>, Vec<u8>),
     WorkflowDetailLoaded(Box<WorkflowDetail>),
     HistoryLoaded(Vec<HistoryEvent>),
     NamespacesLoaded(Vec<Namespace>),

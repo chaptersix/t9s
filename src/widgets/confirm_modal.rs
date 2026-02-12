@@ -1,10 +1,11 @@
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::ConfirmAction;
+use crate::theme;
 
 pub fn render(action: &ConfirmAction, frame: &mut Frame, area: Rect) {
     let message = match action {
@@ -22,20 +23,20 @@ pub fn render(action: &ConfirmAction, frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(
             format!("  {}", message),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  y/Enter", Style::default().fg(Color::Green)),
+            Span::styled("  y/Enter", Style::default().fg(theme::GREEN)),
             Span::raw(" confirm  "),
-            Span::styled("n/Esc", Style::default().fg(Color::Red)),
+            Span::styled("n/Esc", Style::default().fg(theme::RED)),
             Span::raw(" cancel"),
         ]),
     ];
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow))
+        .border_style(Style::default().fg(theme::YELLOW))
         .title(" Confirm ");
 
     let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: true });

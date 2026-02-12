@@ -13,5 +13,8 @@
 # OS
 .DS_Store
 
+# Dev dependencies
+.dev/
+
 # Todo state (session-specific)
 .todos/

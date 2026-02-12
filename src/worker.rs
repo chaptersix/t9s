@@ -13,6 +13,12 @@ pub enum CliRequest {
         page_size: i32,
         next_page_token: Vec<u8>,
     },
+    LoadMoreWorkflows {
+        namespace: String,
+        query: Option<String>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    },
     LoadWorkflowDetail {
         namespace: String,
         workflow_id: String,
@@ -126,6 +132,21 @@ impl CliWorker {
                     .await
                 {
                     Ok((workflows, token)) => Action::WorkflowsLoaded(workflows, token),
+                    Err(e) => Action::Error(format!("failed to load workflows: {}", e)),
+                }
+            }
+            CliRequest::LoadMoreWorkflows {
+                namespace,
+                query,
+                page_size,
+                next_page_token,
+            } => {
+                match self
+                    .client
+                    .list_workflows(&namespace, query.as_deref(), page_size, next_page_token)
+                    .await
+                {
+                    Ok((workflows, token)) => Action::MoreWorkflowsLoaded(workflows, token),
                     Err(e) => Action::Error(format!("failed to load workflows: {}", e)),
                 }
             }

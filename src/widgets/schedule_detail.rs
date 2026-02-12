@@ -1,17 +1,18 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
+use crate::theme;
 
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let schedule = match &app.selected_schedule {
         Some(s) => s,
         None => {
             let loading = Paragraph::new(" Loading schedule detail...")
-                .style(Style::default().fg(Color::DarkGray));
+                .style(Style::default().fg(theme::TEXT_MUTED));
             frame.render_widget(loading, area);
             return;
         }
@@ -27,8 +28,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let action_count = schedule.recent_action_count.to_string();
 
     let state_style = match schedule.state {
-        crate::domain::ScheduleState::Active => Style::default().fg(Color::Green),
-        crate::domain::ScheduleState::Paused => Style::default().fg(Color::Yellow),
+        crate::domain::ScheduleState::Active => Style::default().fg(theme::GREEN),
+        crate::domain::ScheduleState::Paused => Style::default().fg(theme::YELLOW),
     };
 
     let mut lines = vec![
@@ -38,7 +39,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             Span::styled(
                 format!(" {:<20} ", "State"),
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme::PURPLE)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(schedule.state.as_str(), state_style),
@@ -52,7 +53,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         lines.push(Line::from(Span::styled(
             " Notes:",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme::PURPLE)
                 .add_modifier(Modifier::BOLD),
         )));
         for line in schedule.notes.lines() {
@@ -72,9 +73,9 @@ fn field_line<'a>(label: &'a str, value: &'a str) -> Line<'a> {
         Span::styled(
             format!(" {:<20} ", label),
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme::PURPLE)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(value.to_string(), Style::default().fg(Color::White)),
+        Span::styled(value.to_string(), Style::default().fg(theme::TEXT)),
     ])
 }

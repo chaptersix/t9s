@@ -1,17 +1,18 @@
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
+use crate::theme;
 
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let detail = match &app.selected_workflow {
         Some(d) => d,
         None => {
             let loading = Paragraph::new(" Loading workflow detail...")
-                .style(Style::default().fg(Color::DarkGray));
+                .style(Style::default().fg(theme::TEXT_MUTED));
             frame.render_widget(loading, area);
             return;
         }
@@ -29,10 +30,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     for (i, tab) in tabs.iter().enumerate() {
         let style = if i == app.workflow_detail_tab {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme::PURPLE)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme::TEXT_MUTED)
         };
         tab_spans.push(Span::styled(format!(" {} ", tab), style));
         tab_spans.push(Span::raw(" "));
@@ -85,34 +86,48 @@ fn render_io(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Re
 
     lines.push(Line::from(Span::styled(
         " Input:",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD),
     )));
     if let Some(ref input) = detail.input {
         let formatted = serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
         for line in formatted.lines() {
-            lines.push(Line::from(format!("   {}", line)));
+            lines.push(Line::from(Span::styled(
+                format!("   {}", line),
+                Style::default().fg(theme::TEXT),
+            )));
         }
     } else {
-        lines.push(Line::from("   (not loaded)"));
+        lines.push(Line::from(Span::styled(
+            "   (none)",
+            Style::default().fg(theme::TEXT_MUTED),
+        )));
     }
 
     lines.push(Line::from(""));
 
+    lines.push(Line::from(Span::styled(
+        " Output:",
+        Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+    )));
     if let Some(ref output) = detail.output {
-        lines.push(Line::from(Span::styled(
-            " Output:",
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-        )));
         let formatted = serde_json::to_string_pretty(output).unwrap_or_else(|_| output.to_string());
         for line in formatted.lines() {
-            lines.push(Line::from(format!("   {}", line)));
+            lines.push(Line::from(Span::styled(
+                format!("   {}", line),
+                Style::default().fg(theme::TEXT),
+            )));
         }
+    } else {
+        lines.push(Line::from(Span::styled(
+            "   (none)",
+            Style::default().fg(theme::TEXT_MUTED),
+        )));
     }
 
     if let Some(ref failure) = detail.failure {
         lines.push(Line::from(Span::styled(
             " Failure:",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(format!("   Type: {}", failure.failure_type)));
         lines.push(Line::from(format!("   Message: {}", failure.message)));
@@ -134,41 +149,72 @@ fn render_io(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Re
 fn render_history(app: &App, frame: &mut Frame, area: Rect, scroll: u16) {
     match &app.workflow_history {
         crate::app::LoadState::Loaded(events) => {
-            let rows: Vec<Line> = events
-                .iter()
-                .map(|e| {
-                    Line::from(vec![
-                        Span::styled(
-                            format!(" {:>4} ", e.event_id),
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                        Span::styled(
-                            format!("{:<45} ", e.event_type),
-                            event_type_style(&e.event_type),
-                        ),
-                        Span::styled(
-                            format_time(&e.timestamp),
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ])
-                })
-                .collect();
+            let mut lines: Vec<Line> = Vec::new();
+            for e in events {
+                // Event header line
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!(" {:>4} ", e.event_id),
+                        Style::default().fg(theme::TEXT_MUTED),
+                    ),
+                    Span::styled(
+                        format!("{:<45} ", e.event_type),
+                        event_type_style(&e.event_type),
+                    ),
+                    Span::styled(
+                        format_time(&e.timestamp),
+                        Style::default().fg(theme::TEXT_MUTED),
+                    ),
+                ]));
 
-            let paragraph = Paragraph::new(rows)
+                // Event details (if any non-empty details exist)
+                if let Some(obj) = e.details.as_object() {
+                    if !obj.is_empty() {
+                        for (key, value) in obj {
+                            let val_str = match value {
+                                serde_json::Value::String(s) => s.clone(),
+                                other => serde_json::to_string_pretty(other)
+                                    .unwrap_or_else(|_| other.to_string()),
+                            };
+                            // For multi-line values, indent continuation lines
+                            let first_line = val_str.lines().next().unwrap_or("");
+                            lines.push(Line::from(vec![
+                                Span::raw("        "),
+                                Span::styled(
+                                    format!("{}: ", key),
+                                    Style::default().fg(theme::PURPLE),
+                                ),
+                                Span::styled(
+                                    first_line.to_string(),
+                                    Style::default().fg(theme::TEXT_DIM),
+                                ),
+                            ]));
+                            for cont_line in val_str.lines().skip(1) {
+                                lines.push(Line::from(Span::styled(
+                                    format!("          {}", cont_line),
+                                    Style::default().fg(theme::TEXT_DIM),
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let paragraph = Paragraph::new(lines)
                 .block(Block::default().borders(Borders::NONE))
                 .scroll((scroll, 0));
             frame.render_widget(paragraph, area);
         }
         crate::app::LoadState::Loading => {
             frame.render_widget(
-                Paragraph::new(" Loading history...").style(Style::default().fg(Color::DarkGray)),
+                Paragraph::new(" Loading history...").style(Style::default().fg(theme::TEXT_MUTED)),
                 area,
             );
         }
         _ => {
             frame.render_widget(
                 Paragraph::new(" Press Tab or 'l' to load history")
-                    .style(Style::default().fg(Color::DarkGray)),
+                    .style(Style::default().fg(theme::TEXT_MUTED)),
                 area,
             );
         }
@@ -178,7 +224,7 @@ fn render_history(app: &App, frame: &mut Frame, area: Rect, scroll: u16) {
 fn render_pending(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Rect, scroll: u16) {
     if detail.pending_activities.is_empty() {
         frame.render_widget(
-            Paragraph::new(" No pending activities").style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new(" No pending activities").style(Style::default().fg(theme::TEXT_MUTED)),
             area,
         );
         return;
@@ -191,19 +237,19 @@ fn render_pending(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, are
             Line::from(vec![
                 Span::styled(
                     format!(" {:>6} ", a.activity_id),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::TEXT_MUTED),
                 ),
                 Span::styled(
                     format!("{:<30} ", a.activity_type),
-                    Style::default().fg(Color::White),
+                    Style::default().fg(theme::TEXT),
                 ),
                 Span::styled(
                     format!("{:<15} ", a.state.as_str()),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme::YELLOW),
                 ),
                 Span::styled(
                     format!("attempt:{}", a.attempt),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::TEXT_MUTED),
                 ),
             ])
         })
@@ -234,13 +280,13 @@ fn render_task_queue(
             if tq.pollers.is_empty() {
                 lines.push(Line::from(Span::styled(
                     " No pollers",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::TEXT_MUTED),
                 )));
             } else {
                 lines.push(Line::from(Span::styled(
                     " Pollers:",
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme::PURPLE)
                         .add_modifier(Modifier::BOLD),
                 )));
                 for p in &tq.pollers {
@@ -252,15 +298,15 @@ fn render_task_queue(
                         Span::styled("   ", Style::default()),
                         Span::styled(
                             format!("{:<40} ", p.identity),
-                            Style::default().fg(Color::White),
+                            Style::default().fg(theme::TEXT),
                         ),
                         Span::styled(
                             format!("last:{:<20} ", last_access),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(theme::TEXT_MUTED),
                         ),
                         Span::styled(
                             format!("rate:{:.1}/s", p.rate_per_second),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(theme::TEXT_MUTED),
                         ),
                     ]));
                 }
@@ -275,7 +321,7 @@ fn render_task_queue(
         crate::app::LoadState::Loading => {
             frame.render_widget(
                 Paragraph::new(" Loading task queue info...")
-                    .style(Style::default().fg(Color::DarkGray)),
+                    .style(Style::default().fg(theme::TEXT_MUTED)),
                 area,
             );
         }
@@ -283,7 +329,7 @@ fn render_task_queue(
             let tq_name = &detail.summary.task_queue;
             frame.render_widget(
                 Paragraph::new(format!(" Task queue: {} (press Tab or 'l' to load)", tq_name))
-                    .style(Style::default().fg(Color::DarkGray)),
+                    .style(Style::default().fg(theme::TEXT_MUTED)),
                 area,
             );
         }
@@ -295,24 +341,24 @@ fn field_line<'a>(label: &'a str, value: &'a str) -> Line<'a> {
         Span::styled(
             format!(" {:<20} ", label),
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme::PURPLE)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(value.to_string(), Style::default().fg(Color::White)),
+        Span::styled(value.to_string(), Style::default().fg(theme::TEXT)),
     ])
 }
 
 fn event_type_style(event_type: &str) -> Style {
     if event_type.contains("Failed") || event_type.contains("TimedOut") {
-        Style::default().fg(Color::Red)
+        Style::default().fg(theme::RED)
     } else if event_type.contains("Completed") {
-        Style::default().fg(Color::Green)
+        Style::default().fg(theme::GREEN)
     } else if event_type.contains("Started") {
-        Style::default().fg(Color::Blue)
+        Style::default().fg(theme::BLUE)
     } else if event_type.contains("Scheduled") {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(theme::YELLOW)
     } else {
-        Style::default().fg(Color::White)
+        Style::default().fg(theme::TEXT)
     }
 }
 

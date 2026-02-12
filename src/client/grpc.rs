@@ -201,6 +201,7 @@ impl TemporalClient for GrpcTemporalClient {
             .workflow_execution_info
             .ok_or_else(|| ClientError::ParseError("missing workflow execution info".into()))?;
 
+        let history_length = info.history_length as u64;
         let summary = workflow_info_to_summary(info)?;
 
         let pending_activities = resp
@@ -228,7 +229,7 @@ impl TemporalClient for GrpcTemporalClient {
             input: None,
             output: None,
             failure: None,
-            history_length: 0,
+            history_length,
             memo: std::collections::HashMap::new(),
             search_attributes: std::collections::HashMap::new(),
             pending_activities,
@@ -265,6 +266,7 @@ impl TemporalClient for GrpcTemporalClient {
             let resp = response.into_inner();
             if let Some(history) = resp.history {
                 for e in history.events {
+                    let details = extract_event_details(&e);
                     all_events.push(HistoryEvent {
                         event_id: e.event_id,
                         event_type: event_type_name(e.event_type),
@@ -272,7 +274,7 @@ impl TemporalClient for GrpcTemporalClient {
                             .event_time
                             .map(|t| timestamp_to_datetime(&t))
                             .unwrap_or_else(Utc::now),
-                        details: serde_json::json!({}),
+                        details,
                     });
                 }
             }
@@ -704,5 +706,207 @@ fn event_type_name(event_type: i32) -> String {
     match EventType::try_from(event_type) {
         Ok(et) => format!("{:?}", et),
         Err(_) => format!("Unknown({})", event_type),
+    }
+}
+
+fn decode_payloads(payloads: &Option<proto::temporal::api::common::v1::Payloads>) -> serde_json::Value {
+    let Some(payloads) = payloads else {
+        return serde_json::Value::Null;
+    };
+    let values: Vec<serde_json::Value> = payloads.payloads.iter().map(decode_payload).collect();
+    if values.len() == 1 {
+        values.into_iter().next().unwrap()
+    } else {
+        serde_json::Value::Array(values)
+    }
+}
+
+fn decode_payload(payload: &proto::temporal::api::common::v1::Payload) -> serde_json::Value {
+    let encoding = payload
+        .metadata
+        .get("encoding")
+        .map(|v| String::from_utf8_lossy(v).to_string())
+        .unwrap_or_default();
+
+    match encoding.as_str() {
+        "json/plain" => serde_json::from_slice(&payload.data).unwrap_or_else(|_| {
+            serde_json::Value::String(String::from_utf8_lossy(&payload.data).to_string())
+        }),
+        "binary/null" => serde_json::Value::Null,
+        _ => {
+            if let Ok(s) = std::str::from_utf8(&payload.data) {
+                // Try parsing as JSON first
+                serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::String(s.to_string()))
+            } else {
+                serde_json::Value::String(format!("<binary {} bytes>", payload.data.len()))
+            }
+        }
+    }
+}
+
+fn decode_failure(failure: &Option<proto::temporal::api::failure::v1::Failure>) -> serde_json::Value {
+    let Some(f) = failure else {
+        return serde_json::Value::Null;
+    };
+    let mut map = serde_json::Map::new();
+    if !f.message.is_empty() {
+        map.insert("message".into(), serde_json::Value::String(f.message.clone()));
+    }
+    if !f.source.is_empty() {
+        map.insert("source".into(), serde_json::Value::String(f.source.clone()));
+    }
+    if !f.stack_trace.is_empty() {
+        map.insert("stack_trace".into(), serde_json::Value::String(f.stack_trace.clone()));
+    }
+    if let Some(ref cause) = f.cause {
+        map.insert("cause".into(), decode_failure(&Some(*cause.clone())));
+    }
+    serde_json::Value::Object(map)
+}
+
+fn extract_event_details(
+    event: &proto::temporal::api::history::v1::HistoryEvent,
+) -> serde_json::Value {
+    use proto::temporal::api::history::v1::history_event::Attributes;
+
+    let Some(ref attrs) = event.attributes else {
+        return serde_json::json!({});
+    };
+
+    match attrs {
+        Attributes::WorkflowExecutionStartedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            if let Some(ref wt) = a.workflow_type {
+                map.insert("workflow_type".into(), serde_json::Value::String(wt.name.clone()));
+            }
+            if let Some(ref tq) = a.task_queue {
+                map.insert("task_queue".into(), serde_json::Value::String(tq.name.clone()));
+            }
+            let input = decode_payloads(&a.input);
+            if !input.is_null() {
+                map.insert("input".into(), input);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::WorkflowExecutionCompletedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            let result = decode_payloads(&a.result);
+            if !result.is_null() {
+                map.insert("result".into(), result);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::WorkflowExecutionFailedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            let failure = decode_failure(&a.failure);
+            if !failure.is_null() {
+                map.insert("failure".into(), failure);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::ActivityTaskScheduledEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            if let Some(ref at) = a.activity_type {
+                map.insert("activity_type".into(), serde_json::Value::String(at.name.clone()));
+            }
+            if let Some(ref tq) = a.task_queue {
+                map.insert("task_queue".into(), serde_json::Value::String(tq.name.clone()));
+            }
+            let input = decode_payloads(&a.input);
+            if !input.is_null() {
+                map.insert("input".into(), input);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::ActivityTaskCompletedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            let result = decode_payloads(&a.result);
+            if !result.is_null() {
+                map.insert("result".into(), result);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::ActivityTaskFailedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            let failure = decode_failure(&a.failure);
+            if !failure.is_null() {
+                map.insert("failure".into(), failure);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::TimerStartedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            map.insert("timer_id".into(), serde_json::Value::String(a.timer_id.clone()));
+            if let Some(ref d) = a.start_to_fire_timeout {
+                map.insert(
+                    "start_to_fire_timeout".into(),
+                    serde_json::Value::String(format!("{}s", d.seconds)),
+                );
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::TimerFiredEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            map.insert("timer_id".into(), serde_json::Value::String(a.timer_id.clone()));
+            serde_json::Value::Object(map)
+        }
+        Attributes::WorkflowExecutionSignaledEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            map.insert("signal_name".into(), serde_json::Value::String(a.signal_name.clone()));
+            let input = decode_payloads(&a.input);
+            if !input.is_null() {
+                map.insert("input".into(), input);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::WorkflowExecutionTerminatedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            if !a.reason.is_empty() {
+                map.insert("reason".into(), serde_json::Value::String(a.reason.clone()));
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::WorkflowExecutionCanceledEventAttributes(_) => {
+            serde_json::json!({})
+        }
+        Attributes::ChildWorkflowExecutionStartedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            if let Some(ref wt) = a.workflow_type {
+                map.insert("workflow_type".into(), serde_json::Value::String(wt.name.clone()));
+            }
+            if let Some(ref exec) = a.workflow_execution {
+                map.insert("workflow_id".into(), serde_json::Value::String(exec.workflow_id.clone()));
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::ChildWorkflowExecutionCompletedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            let result = decode_payloads(&a.result);
+            if !result.is_null() {
+                map.insert("result".into(), result);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::ChildWorkflowExecutionFailedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            let failure = decode_failure(&a.failure);
+            if !failure.is_null() {
+                map.insert("failure".into(), failure);
+            }
+            serde_json::Value::Object(map)
+        }
+        Attributes::StartChildWorkflowExecutionInitiatedEventAttributes(a) => {
+            let mut map = serde_json::Map::new();
+            if let Some(ref wt) = a.workflow_type {
+                map.insert("workflow_type".into(), serde_json::Value::String(wt.name.clone()));
+            }
+            map.insert("workflow_id".into(), serde_json::Value::String(a.workflow_id.clone()));
+            let input = decode_payloads(&a.input);
+            if !input.is_null() {
+                map.insert("input".into(), input);
+            }
+            serde_json::Value::Object(map)
+        }
+        _ => serde_json::json!({}),
     }
 }

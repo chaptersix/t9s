@@ -1,10 +1,11 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
 use ratatui::Frame;
 
 use crate::app::App;
 use crate::domain::WorkflowStatus;
+use crate::theme;
 
 pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     let workflows = match app.workflows.data() {
@@ -15,7 +16,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
             } else {
                 " No workflows loaded"
             })
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(theme::TEXT_MUTED));
             frame.render_widget(loading, area);
             return;
         }
@@ -30,7 +31,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     ])
     .style(
         Style::default()
-            .fg(Color::Cyan)
+            .fg(theme::TEXT_DIM)
             .add_modifier(Modifier::BOLD),
     )
     .height(1);
@@ -63,7 +64,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         .block(Block::default().borders(Borders::NONE))
         .row_highlight_style(
             Style::default()
-                .bg(Color::Rgb(40, 40, 60))
+                .bg(theme::BG_HIGHLIGHT)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");
@@ -73,13 +74,13 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn status_color(status: &WorkflowStatus) -> Style {
     match status {
-        WorkflowStatus::Running => Style::default().fg(Color::Green),
-        WorkflowStatus::Completed => Style::default().fg(Color::Blue),
-        WorkflowStatus::Failed => Style::default().fg(Color::Red),
-        WorkflowStatus::Canceled => Style::default().fg(Color::Yellow),
-        WorkflowStatus::Terminated => Style::default().fg(Color::Magenta),
-        WorkflowStatus::TimedOut => Style::default().fg(Color::Red),
-        WorkflowStatus::ContinuedAsNew => Style::default().fg(Color::Cyan),
+        WorkflowStatus::Running => Style::default().fg(theme::GREEN),
+        WorkflowStatus::Completed => Style::default().fg(theme::BLUE),
+        WorkflowStatus::Failed => Style::default().fg(theme::RED),
+        WorkflowStatus::Canceled => Style::default().fg(theme::YELLOW),
+        WorkflowStatus::Terminated => Style::default().fg(theme::MAGENTA),
+        WorkflowStatus::TimedOut => Style::default().fg(theme::RED),
+        WorkflowStatus::ContinuedAsNew => Style::default().fg(theme::CYAN),
     }
 }
 

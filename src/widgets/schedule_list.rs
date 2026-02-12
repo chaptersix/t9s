@@ -1,10 +1,11 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
 use ratatui::Frame;
 
 use crate::app::App;
 use crate::domain::ScheduleState;
+use crate::theme;
 
 pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     let schedules = match app.schedules.data() {
@@ -15,7 +16,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
             } else {
                 " No schedules loaded"
             })
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(theme::TEXT_MUTED));
             frame.render_widget(loading, area);
             return;
         }
@@ -30,7 +31,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     ])
     .style(
         Style::default()
-            .fg(Color::Cyan)
+            .fg(theme::TEXT_DIM)
             .add_modifier(Modifier::BOLD),
     )
     .height(1);
@@ -39,8 +40,8 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|sch| {
             let state_style = match sch.state {
-                ScheduleState::Active => Style::default().fg(Color::Green),
-                ScheduleState::Paused => Style::default().fg(Color::Yellow),
+                ScheduleState::Active => Style::default().fg(theme::GREEN),
+                ScheduleState::Paused => Style::default().fg(theme::YELLOW),
             };
             Row::new(vec![
                 Cell::from(format!(" {}", sch.state.as_str())).style(state_style),
@@ -72,7 +73,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         .block(Block::default().borders(Borders::NONE))
         .row_highlight_style(
             Style::default()
-                .bg(Color::Rgb(40, 40, 60))
+                .bg(theme::BG_HIGHLIGHT)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");

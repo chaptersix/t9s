@@ -4,7 +4,7 @@ use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use futures::StreamExt;
 use tokio::sync::mpsc;
 
-use crate::action::{Action, ViewType};
+use crate::action::Action;
 use crate::app::{InputMode, Overlay, View};
 
 pub struct EventHandler {
@@ -173,7 +173,7 @@ pub fn key_to_action(
                 KeyCode::Esc => {
                     Some(Action::CloseOverlay)
                 }
-                KeyCode::Enter => Some(Action::CloseOverlay),
+                KeyCode::Enter => Some(Action::SubmitSearch(input_buffer.to_string())),
                 KeyCode::Backspace => {
                     let mut buf = input_buffer.to_string();
                     buf.pop();
@@ -212,7 +212,9 @@ pub fn key_to_action(
         // Global
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char(':') => Some(Action::OpenCommandInput),
-        KeyCode::Char('/') => Some(Action::OpenSearch),
+        KeyCode::Char('/') if matches!(view, View::WorkflowList | View::ScheduleList) => {
+            Some(Action::OpenSearch)
+        }
         KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::NavigateDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::NavigateUp),
@@ -243,10 +245,6 @@ pub fn key_to_action(
         KeyCode::Char('d') if matches!(view, View::ScheduleList | View::ScheduleDetail) => {
             Some(Action::DeleteSchedule)
         }
-
-        // Tab shortcuts
-        KeyCode::Char('1') => Some(Action::SwitchView(ViewType::Workflows)),
-        KeyCode::Char('2') => Some(Action::SwitchView(ViewType::Schedules)),
 
         _ => None,
     }

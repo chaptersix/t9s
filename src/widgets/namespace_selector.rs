@@ -1,9 +1,10 @@
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Row, Table};
 use ratatui::Frame;
 
 use crate::app::App;
+use crate::theme;
 
 pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     let height = (app.namespaces.len() as u16 + 3).min(area.height.saturating_sub(4));
@@ -27,12 +28,12 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(theme::PURPLE))
                 .title(" Select Namespace (Enter to select, Esc to cancel) "),
         )
         .row_highlight_style(
             Style::default()
-                .bg(Color::Rgb(40, 40, 60))
+                .bg(theme::BG_HIGHLIGHT)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▸ ");
