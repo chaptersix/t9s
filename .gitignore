@@ -1,12 +1,4 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Logs
-*.log
-~/.temporal-tui.log
+/target
 
 # Environment
 .env
@@ -20,10 +12,9 @@ dist/
 
 # OS
 .DS_Store
-Thumbs.db
 
-# Bun binary lock (text lock is committed)
-bun.lockb
+# Dev dependencies
+.dev/
 
 # Todo state (session-specific)
 .todos/

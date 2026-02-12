@@ -1,152 +1,130 @@
 # t9s
 
-A terminal UI for [Temporal](https://temporal.io) — like [k9s](https://k9scli.io) for Kubernetes.
+A terminal UI for [Temporal](https://temporal.io) -- like [k9s](https://k9scli.io) for Kubernetes.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ ● connected │ ns: default │ polling: 3s        │ ?:help    │
-├─────────────────────────────────────────────────────────────┤
-│ [1] Workflows  [2] Schedules  [3] Task Queues  [n] default │
-├─────────────────────────────────────────────────────────────┤
-│ Workflows (12 total)                                        │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ WORKFLOW ID       TYPE          STATUS     STARTED     │ │
-│ │►order-12345       OrderFlow     ● Running  2m ago      │ │
-│ │ payment-67890     PaymentFlow   ✓ Done     5m ago      │ │
-│ │ notify-abc        NotifyFlow    ✗ Failed   10m ago     │ │
-│ └─────────────────────────────────────────────────────────┘ │
-├─────────────────────────────────────────────────────────────┤
-│ j/k:navigate  Enter:open  /:search  n:namespace  ?:help    │
-└─────────────────────────────────────────────────────────────┘
-```
+Connects directly to the Temporal frontend gRPC service (no UI Server dependency).
 
 ## Features
 
-- **Workflow Management** - Browse, filter, search, cancel, terminate workflows
-- **Schedule Management** - View, pause/unpause, trigger scheduled workflows
+- **Workflow Management** - Browse, filter, search, cancel, terminate, signal workflows
+- **Schedule Management** - View, pause/unpause, trigger, delete scheduled workflows
+- **Task Queue Info** - View pollers and worker info in workflow detail
 - **Vim-style Navigation** - j/k, gg/G, Ctrl+D/U, and more
-- **Command Palette** - Quick access to all commands with Ctrl+P
 - **Real-time Updates** - Automatic polling with smart refresh
 - **Namespace Switching** - Easily switch between Temporal namespaces
-- **Keyboard-first** - Full functionality without touching the mouse
+- **Cloud + Local** - Supports Temporal Cloud (API key + TLS), mTLS, and local dev server
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) runtime
-- Temporal server with UI Server running at `http://localhost:8233`
+- Rust toolchain (cargo)
+- Temporal server running (local or Cloud)
+
+## Build
 
 ```bash
-# Start Temporal dev server (includes UI server)
-temporal server start-dev
-```
-
-## Installation
-
-```bash
-bun install
+git submodule update --init
+cargo build --release
 ```
 
 ## Usage
 
 ```bash
+# Local Temporal dev server (default: localhost:7233)
 t9s
+
+# Custom address and namespace
+t9s --address localhost:7233 --namespace production
+
+# Temporal Cloud
+TEMPORAL_API_KEY=<key> t9s --address <ns>.tmprl.cloud:7233 --namespace <ns>
+
+# mTLS
+t9s --address temporal.example.com:7233 --tls-cert client.pem --tls-key client-key.pem
 ```
 
-## Development
+## Environment Variables
 
-```bash
-# Clone the repo
-git clone https://github.com/chaptersix/t9s.git
-cd t9s
-
-# Install dependencies
-bun install
-
-# Start Temporal dev server (in a separate terminal)
-temporal server start-dev
-
-# Start the dev server
-bun run dev
-
-# Start with debug logging
-DEBUG=true bun run dev
-
-# Run tests
-bun test
-
-# Type check
-bun run typecheck
-
-# Seed sample workflows for testing (requires Temporal server)
-bun run seed
-```
-
-Debug logs are written to `~/.temporal-tui.log` when `DEBUG=true` is set.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TEMPORAL_ADDRESS` | Temporal server host:port | `localhost:7233` |
+| `TEMPORAL_NAMESPACE` | Default namespace | `default` |
+| `TEMPORAL_API_KEY` | API key for Temporal Cloud | |
+| `TEMPORAL_TLS_CERT` | Path to TLS client certificate | |
+| `TEMPORAL_TLS_KEY` | Path to TLS client key | |
+| `T9S_LOG_FILE` | Path to log file | |
 
 ## Keybindings
 
 ### Navigation
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Move down |
-| `k` / `↑` | Move up |
+| `j` / Down | Move down |
+| `k` / Up | Move up |
 | `gg` | Go to top |
 | `G` | Go to bottom |
 | `Ctrl+D` | Page down |
 | `Ctrl+U` | Page up |
 | `Enter` | Select / Open |
 | `Esc` | Back / Cancel |
-| `Tab` | Next tab (in detail views) |
 
 ### Views
 | Key | Action |
 |-----|--------|
 | `1` | Workflows |
 | `2` | Schedules |
-| `3` | Task Queues |
-| `n` | Switch namespace |
-| `Ctrl+P` | Command palette |
+| `:` | Command mode |
+| `/` | Search |
 | `?` | Help |
 | `q` | Quit |
+
+### Commands
+| Command | Action |
+|---------|--------|
+| `:wf` | Switch to workflows |
+| `:sch` | Switch to schedules |
+| `:ns <name>` | Switch namespace |
+| `:signal <name> [json]` | Signal selected workflow |
+| `:q` | Quit |
 
 ### Workflow Actions
 | Key | Action |
 |-----|--------|
-| `/` | Search workflows |
 | `c` | Cancel workflow |
 | `t` | Terminate workflow |
-| `s` | Signal workflow |
+| `h` / `l` | Switch detail tabs |
 | `Ctrl+R` | Refresh |
 
 ### Schedule Actions
 | Key | Action |
 |-----|--------|
-| `p` | Pause / Unpause |
-| `T` | Trigger now |
-| `d` | Delete |
+| `p` | Pause/unpause schedule |
+| `T` | Trigger schedule |
+| `d` | Delete schedule |
+
+### Workflow Detail
+| Key | Action |
+|-----|--------|
+| `h` / `l` | Switch tabs |
+| `Tab` / `Shift+Tab` | Switch tabs |
 
 ## Architecture
 
+Elm architecture (App/Action/Update/Effect) with Ratatui + Crossterm + Tonic gRPC.
+
 ```
 src/
-├── app.ts              # Application entry and orchestration
-├── components/         # UI components
-│   ├── layout/         # Shell, StatusBar, TabBar, Footer
-│   ├── overlay/        # CommandPalette, Modals, HelpOverlay
-│   └── common/         # Table, FilterBar, Loading
-├── views/              # Main views
-│   ├── workflows/      # WorkflowList, WorkflowDetail
-│   └── schedules/      # ScheduleList, ScheduleDetail
-├── store/              # State management (Zustand-like)
-├── data/temporal/      # Temporal HTTP client
-├── input/              # Key handling
-└── plugins/            # Plugin system
+├── main.rs            # Entry point, render loop, effect dispatch
+├── app.rs             # App state, View/InputMode/Overlay enums, update()
+├── action.rs          # Action enum
+├── event.rs           # Terminal event handling, key-to-action mapping
+├── worker.rs          # Async gRPC dispatch via channels
+├── config.rs          # CLI args, env vars, TOML config
+├── tui.rs             # Terminal setup/teardown
+├── client/            # Temporal gRPC client
+│   ├── traits.rs      # TemporalClient trait
+│   └── grpc.rs        # tonic-based implementation
+├── domain/            # Domain types (Workflow, Schedule, Namespace, etc.)
+├── widgets/           # Ratatui widgets (status bar, tables, overlays)
+├── input/             # Command definitions and parsing
+└── proto/             # Generated protobuf code
 ```
-
-## Configuration
-
-t9s connects to the Temporal UI Server HTTP API at `http://localhost:8233` by default.
-
-## License
-
-MIT
