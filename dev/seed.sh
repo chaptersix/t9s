@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Seed a local Temporal server with workflows from temporalio/samples-go.
-# Starts workers for several sample types, then kicks off workflows.
+# Starts workers for several sample types, then kicks off workflows and schedules.
 #
 # Usage:
-#   ./dev/seed.sh           # start workers + seed workflows (workers keep running)
-#   ./dev/seed.sh --stop    # stop background workers
+#   ./dev/seed.sh           # start workers + seed workflows + create schedules
+#   ./dev/seed.sh --stop    # stop workers and delete schedules
 
 REPO_URL="https://github.com/temporalio/samples-go.git"
 CACHE_DIR="$(cd "$(dirname "$0")/.." && pwd)/.dev/samples-go"
@@ -34,8 +34,24 @@ stop_workers() {
     echo "All workers stopped."
 }
 
+cleanup_schedules() {
+    echo "Cleaning up schedules..."
+    local schedule_ids=(
+        "greeting-every-5m"
+        "hello-every-2m"
+        "saga-hourly"
+        "cron-every-10m"
+        "timer-every-3m"
+    )
+    for sched_id in "${schedule_ids[@]}"; do
+        temporal schedule delete --schedule-id "$sched_id" 2>/dev/null && \
+            echo "  Deleted $sched_id" || true
+    done
+}
+
 if [ "${1:-}" = "--stop" ]; then
     stop_workers
+    cleanup_schedules
     exit 0
 fi
 
@@ -114,6 +130,63 @@ done
 
 # Wait for starters to kick off
 sleep 3
+
+# Create schedules
+echo ""
+echo "Creating schedules..."
+
+SCHEDULE_IDS=(
+    "greeting-every-5m"
+    "hello-every-2m"
+    "saga-hourly"
+    "cron-every-10m"
+    "timer-every-3m"
+)
+
+# Delete existing schedules to make script idempotent
+for sched_id in "${SCHEDULE_IDS[@]}"; do
+    temporal schedule delete --schedule-id "$sched_id" 2>/dev/null || true
+done
+
+# Create fresh schedules
+temporal schedule create \
+    --schedule-id "greeting-every-5m" \
+    --type "GreetingWorkflow" \
+    --task-queue "greetings" \
+    --workflow-id "sched-greeting" \
+    --interval "5m" 2>/dev/null || echo "  warning: failed to create greeting-every-5m"
+
+temporal schedule create \
+    --schedule-id "hello-every-2m" \
+    --type "Workflow" \
+    --task-queue "hello-world" \
+    --workflow-id "sched-hello" \
+    --interval "2m" \
+    --input '"Temporal"' 2>/dev/null || echo "  warning: failed to create hello-every-2m"
+
+temporal schedule create \
+    --schedule-id "saga-hourly" \
+    --type "TransferWorkflow" \
+    --task-queue "saga" \
+    --workflow-id "sched-saga" \
+    --interval "1h" \
+    --paused 2>/dev/null || echo "  warning: failed to create saga-hourly"
+
+temporal schedule create \
+    --schedule-id "cron-every-10m" \
+    --type "SampleCronWorkflow" \
+    --task-queue "cron" \
+    --workflow-id "sched-cron" \
+    --cron "*/10 * * * *" 2>/dev/null || echo "  warning: failed to create cron-every-10m"
+
+temporal schedule create \
+    --schedule-id "timer-every-3m" \
+    --type "SampleTimerWorkflow" \
+    --task-queue "timer" \
+    --workflow-id "sched-timer" \
+    --interval "3m" 2>/dev/null || echo "  warning: failed to create timer-every-3m"
+
+echo "  5 schedules created"
 
 echo ""
 echo "Seed complete. Workers are running in the background."
