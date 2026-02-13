@@ -266,29 +266,17 @@ impl CliWorker {
             CliRequest::TriggerSchedule {
                 namespace,
                 schedule_id,
-            } => {
-                match self
-                    .client
-                    .trigger_schedule(&namespace, &schedule_id)
-                    .await
-                {
-                    Ok(()) => Action::Refresh,
-                    Err(e) => Action::Error(format!("failed to trigger schedule: {}", e)),
-                }
-            }
+            } => match self.client.trigger_schedule(&namespace, &schedule_id).await {
+                Ok(()) => Action::Refresh,
+                Err(e) => Action::Error(format!("failed to trigger schedule: {}", e)),
+            },
             CliRequest::DeleteSchedule {
                 namespace,
                 schedule_id,
-            } => {
-                match self
-                    .client
-                    .delete_schedule(&namespace, &schedule_id)
-                    .await
-                {
-                    Ok(()) => Action::Refresh,
-                    Err(e) => Action::Error(format!("failed to delete schedule: {}", e)),
-                }
-            }
+            } => match self.client.delete_schedule(&namespace, &schedule_id).await {
+                Ok(()) => Action::Refresh,
+                Err(e) => Action::Error(format!("failed to delete schedule: {}", e)),
+            },
             CliRequest::DescribeTaskQueue {
                 namespace,
                 task_queue,

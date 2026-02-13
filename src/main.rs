@@ -8,11 +8,11 @@ use tokio::sync::mpsc;
 
 use t9s::action::Action;
 use t9s::app::{App, ConfirmAction, Effect, InputMode, Overlay, View};
-use t9s::kinds::{detail_spec, operation_effect_spec};
 use t9s::client::GrpcTemporalClient;
 use t9s::config::Cli;
 use t9s::event::{key_to_action, AppEvent, RawEventHandler};
 use t9s::kinds::KindId;
+use t9s::kinds::{detail_spec, operation_effect_spec};
 use t9s::widgets;
 use t9s::worker::{CliRequest, CliWorker};
 
@@ -199,15 +199,14 @@ fn render(app: &mut App, frame: &mut ratatui::Frame) {
 
     // Dark navy background
     frame.render_widget(
-        ratatui::widgets::Block::default().style(
-            ratatui::style::Style::default().bg(t9s::theme::BG_DARK),
-        ),
+        ratatui::widgets::Block::default()
+            .style(ratatui::style::Style::default().bg(t9s::theme::BG_DARK)),
         area,
     );
 
     let layout = Layout::vertical([
         Constraint::Length(1), // Tab bar
-        Constraint::Fill(1),  // Content
+        Constraint::Fill(1),   // Content
         Constraint::Length(1), // Footer
     ])
     .split(area);
@@ -270,11 +269,7 @@ fn render(app: &mut App, frame: &mut ratatui::Frame) {
     widgets::error_toast::render(app, frame, area);
 }
 
-fn handle_effects(
-    effects: Vec<Effect>,
-    cli_handle: &t9s::worker::CliHandle,
-    app: &App,
-) {
+fn handle_effects(effects: Vec<Effect>, cli_handle: &t9s::worker::CliHandle, app: &App) {
     for effect in effects {
         match effect {
             Effect::LoadWorkflows => {

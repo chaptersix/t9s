@@ -18,7 +18,9 @@ struct ApiKeyInterceptor {
 impl Interceptor for ApiKeyInterceptor {
     fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
         if let Some(ref token) = self.api_key {
-            request.metadata_mut().insert("authorization", token.clone());
+            request
+                .metadata_mut()
+                .insert("authorization", token.clone());
         }
         if let Some(ref ns) = self.namespace {
             request
@@ -29,8 +31,9 @@ impl Interceptor for ApiKeyInterceptor {
     }
 }
 
-type InterceptedClient =
-    WorkflowServiceClient<tonic::service::interceptor::InterceptedService<Channel, ApiKeyInterceptor>>;
+type InterceptedClient = WorkflowServiceClient<
+    tonic::service::interceptor::InterceptedService<Channel, ApiKeyInterceptor>,
+>;
 
 pub struct GrpcTemporalClient {
     client: InterceptedClient,
@@ -65,10 +68,15 @@ impl GrpcTemporalClient {
 
             // mTLS client certificates
             if let (Some(cert_path), Some(key_path)) = (tls_cert, tls_key) {
-                let cert = std::fs::read(&cert_path)
-                    .map_err(|e| ClientError::ConfigError(format!("failed to read TLS cert {}: {}", cert_path, e)))?;
-                let key = std::fs::read(&key_path)
-                    .map_err(|e| ClientError::ConfigError(format!("failed to read TLS key {}: {}", key_path, e)))?;
+                let cert = std::fs::read(&cert_path).map_err(|e| {
+                    ClientError::ConfigError(format!(
+                        "failed to read TLS cert {}: {}",
+                        cert_path, e
+                    ))
+                })?;
+                let key = std::fs::read(&key_path).map_err(|e| {
+                    ClientError::ConfigError(format!("failed to read TLS key {}: {}", key_path, e))
+                })?;
                 let identity = tonic::transport::Identity::from_pem(cert, key);
                 tls_config = tls_config.identity(identity);
             }
@@ -86,9 +94,9 @@ impl GrpcTemporalClient {
         tracing::info!("Connected to Temporal successfully");
 
         let interceptor = ApiKeyInterceptor {
-            api_key: api_key.as_ref().and_then(|key| {
-                format!("Bearer {}", key).parse::<AsciiMetadataValue>().ok()
-            }),
+            api_key: api_key
+                .as_ref()
+                .and_then(|key| format!("Bearer {}", key).parse::<AsciiMetadataValue>().ok()),
             namespace: namespace.parse::<AsciiMetadataValue>().ok(),
         };
 
@@ -101,7 +109,10 @@ impl GrpcTemporalClient {
         Request::new(inner)
     }
 
-    fn wf_execution(workflow_id: &str, run_id: Option<&str>) -> proto::temporal::api::common::v1::WorkflowExecution {
+    fn wf_execution(
+        workflow_id: &str,
+        run_id: Option<&str>,
+    ) -> proto::temporal::api::common::v1::WorkflowExecution {
         proto::temporal::api::common::v1::WorkflowExecution {
             workflow_id: workflow_id.to_string(),
             run_id: run_id.unwrap_or("").to_string(),
@@ -288,11 +299,7 @@ impl TemporalClient for GrpcTemporalClient {
         Ok(all_events)
     }
 
-    async fn count_workflows(
-        &self,
-        namespace: &str,
-        query: Option<&str>,
-    ) -> ClientResult<u64> {
+    async fn count_workflows(&self, namespace: &str, query: Option<&str>) -> ClientResult<u64> {
         let inner = proto::CountWorkflowExecutionsRequest {
             namespace: namespace.to_string(),
             query: query.unwrap_or("").to_string(),
@@ -437,12 +444,8 @@ impl TemporalClient for GrpcTemporalClient {
                     next_run: info
                         .and_then(|i| i.future_action_times.first())
                         .map(timestamp_to_datetime),
-                    recent_action_count: info
-                        .map(|i| i.recent_actions.len() as u64)
-                        .unwrap_or(0),
-                    notes: info
-                        .map(|i| i.notes.clone())
-                        .unwrap_or_default(),
+                    recent_action_count: info.map(|i| i.recent_actions.len() as u64).unwrap_or(0),
+                    notes: info.map(|i| i.notes.clone()).unwrap_or_default(),
                 }
             })
             .collect();
@@ -478,9 +481,9 @@ impl TemporalClient for GrpcTemporalClient {
                 .and_then(|s| s.action.as_ref())
                 .and_then(|a| a.action.as_ref())
                 .and_then(|a| match a {
-                    proto::temporal::api::schedule::v1::schedule_action::Action::StartWorkflow(wf) => {
-                        wf.workflow_type.as_ref().map(|t| t.name.clone())
-                    }
+                    proto::temporal::api::schedule::v1::schedule_action::Action::StartWorkflow(
+                        wf,
+                    ) => wf.workflow_type.as_ref().map(|t| t.name.clone()),
                 })
                 .unwrap_or_default(),
             state: {
@@ -522,8 +525,16 @@ impl TemporalClient for GrpcTemporalClient {
             namespace: namespace.to_string(),
             schedule_id: schedule_id.to_string(),
             patch: Some(proto::temporal::api::schedule::v1::SchedulePatch {
-                pause: if pause { "paused by t9s".to_string() } else { String::new() },
-                unpause: if !pause { "unpaused by t9s".to_string() } else { String::new() },
+                pause: if pause {
+                    "paused by t9s".to_string()
+                } else {
+                    String::new()
+                },
+                unpause: if !pause {
+                    "unpaused by t9s".to_string()
+                } else {
+                    String::new()
+                },
                 ..Default::default()
             }),
             identity: "t9s".to_string(),
@@ -539,11 +550,7 @@ impl TemporalClient for GrpcTemporalClient {
         Ok(())
     }
 
-    async fn trigger_schedule(
-        &self,
-        namespace: &str,
-        schedule_id: &str,
-    ) -> ClientResult<()> {
+    async fn trigger_schedule(&self, namespace: &str, schedule_id: &str) -> ClientResult<()> {
         let inner = proto::PatchScheduleRequest {
             namespace: namespace.to_string(),
             schedule_id: schedule_id.to_string(),
@@ -569,11 +576,7 @@ impl TemporalClient for GrpcTemporalClient {
         Ok(())
     }
 
-    async fn delete_schedule(
-        &self,
-        namespace: &str,
-        schedule_id: &str,
-    ) -> ClientResult<()> {
+    async fn delete_schedule(&self, namespace: &str, schedule_id: &str) -> ClientResult<()> {
         let inner = proto::DeleteScheduleRequest {
             namespace: namespace.to_string(),
             schedule_id: schedule_id.to_string(),
@@ -710,7 +713,9 @@ fn event_type_name(event_type: i32) -> String {
     }
 }
 
-fn decode_payloads(payloads: &Option<proto::temporal::api::common::v1::Payloads>) -> serde_json::Value {
+fn decode_payloads(
+    payloads: &Option<proto::temporal::api::common::v1::Payloads>,
+) -> serde_json::Value {
     let Some(payloads) = payloads else {
         return serde_json::Value::Null;
     };
@@ -745,19 +750,27 @@ fn decode_payload(payload: &proto::temporal::api::common::v1::Payload) -> serde_
     }
 }
 
-fn decode_failure(failure: &Option<proto::temporal::api::failure::v1::Failure>) -> serde_json::Value {
+fn decode_failure(
+    failure: &Option<proto::temporal::api::failure::v1::Failure>,
+) -> serde_json::Value {
     let Some(f) = failure else {
         return serde_json::Value::Null;
     };
     let mut map = serde_json::Map::new();
     if !f.message.is_empty() {
-        map.insert("message".into(), serde_json::Value::String(f.message.clone()));
+        map.insert(
+            "message".into(),
+            serde_json::Value::String(f.message.clone()),
+        );
     }
     if !f.source.is_empty() {
         map.insert("source".into(), serde_json::Value::String(f.source.clone()));
     }
     if !f.stack_trace.is_empty() {
-        map.insert("stack_trace".into(), serde_json::Value::String(f.stack_trace.clone()));
+        map.insert(
+            "stack_trace".into(),
+            serde_json::Value::String(f.stack_trace.clone()),
+        );
     }
     if let Some(ref cause) = f.cause {
         map.insert("cause".into(), decode_failure(&Some(*cause.clone())));
@@ -778,10 +791,16 @@ fn extract_event_details(
         Attributes::WorkflowExecutionStartedEventAttributes(a) => {
             let mut map = serde_json::Map::new();
             if let Some(ref wt) = a.workflow_type {
-                map.insert("workflow_type".into(), serde_json::Value::String(wt.name.clone()));
+                map.insert(
+                    "workflow_type".into(),
+                    serde_json::Value::String(wt.name.clone()),
+                );
             }
             if let Some(ref tq) = a.task_queue {
-                map.insert("task_queue".into(), serde_json::Value::String(tq.name.clone()));
+                map.insert(
+                    "task_queue".into(),
+                    serde_json::Value::String(tq.name.clone()),
+                );
             }
             let input = decode_payloads(&a.input);
             if !input.is_null() {
@@ -808,10 +827,16 @@ fn extract_event_details(
         Attributes::ActivityTaskScheduledEventAttributes(a) => {
             let mut map = serde_json::Map::new();
             if let Some(ref at) = a.activity_type {
-                map.insert("activity_type".into(), serde_json::Value::String(at.name.clone()));
+                map.insert(
+                    "activity_type".into(),
+                    serde_json::Value::String(at.name.clone()),
+                );
             }
             if let Some(ref tq) = a.task_queue {
-                map.insert("task_queue".into(), serde_json::Value::String(tq.name.clone()));
+                map.insert(
+                    "task_queue".into(),
+                    serde_json::Value::String(tq.name.clone()),
+                );
             }
             let input = decode_payloads(&a.input);
             if !input.is_null() {
@@ -837,7 +862,10 @@ fn extract_event_details(
         }
         Attributes::TimerStartedEventAttributes(a) => {
             let mut map = serde_json::Map::new();
-            map.insert("timer_id".into(), serde_json::Value::String(a.timer_id.clone()));
+            map.insert(
+                "timer_id".into(),
+                serde_json::Value::String(a.timer_id.clone()),
+            );
             if let Some(ref d) = a.start_to_fire_timeout {
                 map.insert(
                     "start_to_fire_timeout".into(),
@@ -848,12 +876,18 @@ fn extract_event_details(
         }
         Attributes::TimerFiredEventAttributes(a) => {
             let mut map = serde_json::Map::new();
-            map.insert("timer_id".into(), serde_json::Value::String(a.timer_id.clone()));
+            map.insert(
+                "timer_id".into(),
+                serde_json::Value::String(a.timer_id.clone()),
+            );
             serde_json::Value::Object(map)
         }
         Attributes::WorkflowExecutionSignaledEventAttributes(a) => {
             let mut map = serde_json::Map::new();
-            map.insert("signal_name".into(), serde_json::Value::String(a.signal_name.clone()));
+            map.insert(
+                "signal_name".into(),
+                serde_json::Value::String(a.signal_name.clone()),
+            );
             let input = decode_payloads(&a.input);
             if !input.is_null() {
                 map.insert("input".into(), input);
@@ -873,10 +907,16 @@ fn extract_event_details(
         Attributes::ChildWorkflowExecutionStartedEventAttributes(a) => {
             let mut map = serde_json::Map::new();
             if let Some(ref wt) = a.workflow_type {
-                map.insert("workflow_type".into(), serde_json::Value::String(wt.name.clone()));
+                map.insert(
+                    "workflow_type".into(),
+                    serde_json::Value::String(wt.name.clone()),
+                );
             }
             if let Some(ref exec) = a.workflow_execution {
-                map.insert("workflow_id".into(), serde_json::Value::String(exec.workflow_id.clone()));
+                map.insert(
+                    "workflow_id".into(),
+                    serde_json::Value::String(exec.workflow_id.clone()),
+                );
             }
             serde_json::Value::Object(map)
         }
@@ -899,9 +939,15 @@ fn extract_event_details(
         Attributes::StartChildWorkflowExecutionInitiatedEventAttributes(a) => {
             let mut map = serde_json::Map::new();
             if let Some(ref wt) = a.workflow_type {
-                map.insert("workflow_type".into(), serde_json::Value::String(wt.name.clone()));
+                map.insert(
+                    "workflow_type".into(),
+                    serde_json::Value::String(wt.name.clone()),
+                );
             }
-            map.insert("workflow_id".into(), serde_json::Value::String(a.workflow_id.clone()));
+            map.insert(
+                "workflow_id".into(),
+                serde_json::Value::String(a.workflow_id.clone()),
+            );
             let input = decode_payloads(&a.input);
             if !input.is_null() {
                 map.insert("input".into(), input);

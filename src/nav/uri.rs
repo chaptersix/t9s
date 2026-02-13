@@ -186,10 +186,8 @@ fn build_query(location: &Location) -> String {
 
     if let Some(segment) = location.leaf() {
         match segment {
-            RouteSegment::Workflows(WorkflowsRoute::Collection { query }) => {
-                if let Some(q) = query {
-                    params.push((String::from("q"), q.clone()));
-                }
+            RouteSegment::Workflows(WorkflowsRoute::Collection { query: Some(q) }) => {
+                params.push((String::from("q"), q.clone()));
             }
             RouteSegment::Workflows(WorkflowsRoute::Detail { run_id, tab, .. }) => {
                 if let Some(run_id) = run_id {
@@ -199,15 +197,11 @@ fn build_query(location: &Location) -> String {
                     params.push((String::from("tab"), tab.clone()));
                 }
             }
-            RouteSegment::Schedules(SchedulesRoute::Collection { query }) => {
-                if let Some(q) = query {
-                    params.push((String::from("q"), q.clone()));
-                }
+            RouteSegment::Schedules(SchedulesRoute::Collection { query: Some(q) }) => {
+                params.push((String::from("q"), q.clone()));
             }
-            RouteSegment::Schedules(SchedulesRoute::Workflows { query, .. }) => {
-                if let Some(q) = query {
-                    params.push((String::from("q"), q.clone()));
-                }
+            RouteSegment::Schedules(SchedulesRoute::Workflows { query: Some(q), .. }) => {
+                params.push((String::from("q"), q.clone()));
             }
             _ => {}
         }

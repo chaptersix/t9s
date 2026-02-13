@@ -47,11 +47,7 @@ pub trait TemporalClient: Send + Sync {
         run_id: Option<&str>,
     ) -> ClientResult<Vec<HistoryEvent>>;
 
-    async fn count_workflows(
-        &self,
-        namespace: &str,
-        query: Option<&str>,
-    ) -> ClientResult<u64>;
+    async fn count_workflows(&self, namespace: &str, query: Option<&str>) -> ClientResult<u64>;
 
     async fn cancel_workflow(
         &self,
@@ -83,11 +79,8 @@ pub trait TemporalClient: Send + Sync {
         query: Option<&str>,
     ) -> ClientResult<Vec<Schedule>>;
 
-    async fn describe_schedule(
-        &self,
-        namespace: &str,
-        schedule_id: &str,
-    ) -> ClientResult<Schedule>;
+    async fn describe_schedule(&self, namespace: &str, schedule_id: &str)
+        -> ClientResult<Schedule>;
 
     async fn patch_schedule(
         &self,
@@ -96,17 +89,9 @@ pub trait TemporalClient: Send + Sync {
         pause: bool,
     ) -> ClientResult<()>;
 
-    async fn trigger_schedule(
-        &self,
-        namespace: &str,
-        schedule_id: &str,
-    ) -> ClientResult<()>;
+    async fn trigger_schedule(&self, namespace: &str, schedule_id: &str) -> ClientResult<()>;
 
-    async fn delete_schedule(
-        &self,
-        namespace: &str,
-        schedule_id: &str,
-    ) -> ClientResult<()>;
+    async fn delete_schedule(&self, namespace: &str, schedule_id: &str) -> ClientResult<()>;
 
     async fn describe_task_queue(
         &self,

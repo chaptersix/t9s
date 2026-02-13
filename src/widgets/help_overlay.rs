@@ -56,7 +56,7 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
         lines.push(Line::from(""));
         lines.push(section("Workflow Actions"));
         for op in kind_spec(KindId::WorkflowExecution).operations {
-            lines.push(binding(&op.key.to_string(), op.label));
+            lines.push(binding(op.key.to_string(), op.label));
         }
         if is_detail {
             lines.push(binding("h / l", "Switch detail tabs"));
@@ -73,7 +73,7 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
             } else {
                 op.key.to_string()
             };
-            lines.push(binding(&key, op.label));
+            lines.push(binding(key, op.label));
         }
         lines.push(binding("w", "Schedule workflows"));
     }

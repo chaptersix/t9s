@@ -113,9 +113,7 @@ pub fn key_to_action(
     match overlay {
         Overlay::Help => {
             return match key.code {
-                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
-                    Some(Action::ToggleHelp)
-                }
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => Some(Action::ToggleHelp),
                 _ => None,
             };
         }
@@ -171,9 +169,7 @@ pub fn key_to_action(
         }
         InputMode::Search => {
             return match key.code {
-                KeyCode::Esc => {
-                    Some(Action::CloseOverlay)
-                }
+                KeyCode::Esc => Some(Action::CloseOverlay),
                 KeyCode::Enter => Some(Action::SubmitSearch(input_buffer.to_string())),
                 KeyCode::Backspace => {
                     let mut buf = input_buffer.to_string();
@@ -213,9 +209,7 @@ pub fn key_to_action(
         // Global
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char(':') => Some(Action::OpenCommandInput),
-        KeyCode::Char('/') if matches!(view, View::Collection(_)) => {
-            Some(Action::OpenSearch)
-        }
+        KeyCode::Char('/') if matches!(view, View::Collection(_)) => Some(Action::OpenSearch),
         KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::NavigateDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::NavigateUp),
@@ -236,7 +230,10 @@ pub fn key_to_action(
             Some(Action::OpenWorkflowActivities)
         }
         KeyCode::Char('w')
-            if matches!(view, View::Collection(KindId::Schedule) | View::Detail(KindId::Schedule)) =>
+            if matches!(
+                view,
+                View::Collection(KindId::Schedule) | View::Detail(KindId::Schedule)
+            ) =>
         {
             Some(Action::OpenScheduleWorkflows)
         }
