@@ -1,5 +1,7 @@
 # t9s
 
+> WARNING: This project is in an experimentation phase and is extremely unstable. As stable as a three-legged stool on a trampoline.
+
 A terminal UI for [Temporal](https://temporal.io) -- like [k9s](https://k9scli.io) for Kubernetes.
 
 Connects directly to the Temporal frontend gRPC service (no UI Server dependency).
@@ -9,6 +11,8 @@ Connects directly to the Temporal frontend gRPC service (no UI Server dependency
 - **Workflow Management** - Browse, filter, search, cancel, terminate, signal workflows
 - **Schedule Management** - View, pause/unpause, trigger, delete scheduled workflows
 - **Task Queue Info** - View pollers and worker info in workflow detail
+- **Deep Links** - Navigate via `temporal://` URIs with namespace + filters
+- **List Filters** - Visibility queries for workflows and schedules
 - **Vim-style Navigation** - j/k, gg/G, Ctrl+D/U, and more
 - **Real-time Updates** - Automatic polling with smart refresh
 - **Namespace Switching** - Easily switch between Temporal namespaces
@@ -84,6 +88,7 @@ t9s --address temporal.example.com:7233 --tls-cert client.pem --tls-key client-k
 | `:sch` | Switch to schedules |
 | `:ns <name>` | Switch namespace |
 | `:signal <name> [json]` | Signal selected workflow |
+| `:open <uri>` | Open a deep link URI |
 | `:q` | Quit |
 
 ### Workflow Actions
@@ -92,6 +97,7 @@ t9s --address temporal.example.com:7233 --tls-cert client.pem --tls-key client-k
 | `c` | Cancel workflow |
 | `t` | Terminate workflow |
 | `h` / `l` | Switch detail tabs |
+| `a` | Pending activities |
 | `Ctrl+R` | Refresh |
 
 ### Schedule Actions
@@ -100,6 +106,7 @@ t9s --address temporal.example.com:7233 --tls-cert client.pem --tls-key client-k
 | `p` | Pause/unpause schedule |
 | `T` | Trigger schedule |
 | `d` | Delete schedule |
+| `w` | Schedule workflows |
 
 ### Workflow Detail
 | Key | Action |
@@ -110,6 +117,11 @@ t9s --address temporal.example.com:7233 --tls-cert client.pem --tls-key client-k
 ## Architecture
 
 Elm architecture (App/Action/Update/Effect) with Ratatui + Crossterm + Tonic gRPC.
+UI is Kind-driven (collection/detail/operations) with deep-link navigation.
+
+See:
+- `ARCHITECTURE.md`
+- `docs/kind-generator.md`
 
 ```
 src/
@@ -124,7 +136,10 @@ src/
 │   ├── traits.rs      # TemporalClient trait
 │   └── grpc.rs        # tonic-based implementation
 ├── domain/            # Domain types (Workflow, Schedule, Namespace, etc.)
+├── kinds/             # Kind registry and capability specs
+├── nav/               # Deep-link location parsing/formatting
 ├── widgets/           # Ratatui widgets (status bar, tables, overlays)
+│   ├── collection.rs  # Generic collection view
 ├── input/             # Command definitions and parsing
 └── proto/             # Generated protobuf code
 ```

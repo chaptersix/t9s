@@ -208,3 +208,8 @@ segment.
 
 - Remove legacy per-kind view wiring and duplicated widgets.
 - Add tests for URI roundtrips, route -> effects, and keymap coverage.
+
+## Testing Notes
+
+- URI roundtrip tests live in `src/nav/uri.rs`.
+- Route-to-effects tests live in `src/app.rs`.
