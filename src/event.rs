@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::action::Action;
 use crate::app::{InputMode, Overlay, View};
+use crate::kinds::{operation_for_key, KindId};
 
 pub struct EventHandler {
     rx: mpsc::UnboundedReceiver<Action>,
@@ -212,7 +213,7 @@ pub fn key_to_action(
         // Global
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char(':') => Some(Action::OpenCommandInput),
-        KeyCode::Char('/') if matches!(view, View::WorkflowList | View::ScheduleList) => {
+        KeyCode::Char('/') if matches!(view, View::Collection(_)) => {
             Some(Action::OpenSearch)
         }
         KeyCode::Char('?') => Some(Action::ToggleHelp),
@@ -225,25 +226,25 @@ pub fn key_to_action(
         KeyCode::Tab => Some(Action::NextTab),
         KeyCode::BackTab => Some(Action::PrevTab),
 
-        // View-specific: Workflow
-        KeyCode::Char('c') if matches!(view, View::WorkflowList | View::WorkflowDetail) => {
-            Some(Action::CancelWorkflow)
+        KeyCode::Char('l') if matches!(view, View::Detail(KindId::WorkflowExecution)) => {
+            Some(Action::NextTab)
         }
-        KeyCode::Char('t') if matches!(view, View::WorkflowList | View::WorkflowDetail) => {
-            Some(Action::TerminateWorkflow)
+        KeyCode::Char('h') if matches!(view, View::Detail(KindId::WorkflowExecution)) => {
+            Some(Action::PrevTab)
         }
-        KeyCode::Char('l') if matches!(view, View::WorkflowDetail) => Some(Action::NextTab),
-        KeyCode::Char('h') if matches!(view, View::WorkflowDetail) => Some(Action::PrevTab),
-
-        // View-specific: Schedule
-        KeyCode::Char('p') if matches!(view, View::ScheduleList | View::ScheduleDetail) => {
-            Some(Action::PauseSchedule)
+        KeyCode::Char('a') if matches!(view, View::Detail(KindId::WorkflowExecution)) => {
+            Some(Action::OpenWorkflowActivities)
         }
-        KeyCode::Char('T') if matches!(view, View::ScheduleList | View::ScheduleDetail) => {
-            Some(Action::TriggerSchedule)
+        KeyCode::Char('w')
+            if matches!(view, View::Collection(KindId::Schedule) | View::Detail(KindId::Schedule)) =>
+        {
+            Some(Action::OpenScheduleWorkflows)
         }
-        KeyCode::Char('d') if matches!(view, View::ScheduleList | View::ScheduleDetail) => {
-            Some(Action::DeleteSchedule)
+        KeyCode::Char(c) => {
+            let kind = match view {
+                View::Collection(kind) | View::Detail(kind) => *kind,
+            };
+            operation_for_key(kind, c).map(Action::RunOperation)
         }
 
         _ => None,

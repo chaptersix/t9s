@@ -1,16 +1,19 @@
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use ratatui::widgets::TableState;
 
 use crate::action::{Action, ViewType};
 use crate::domain::*;
+use crate::kinds::{detail_tab_count, operation_effect_spec, operation_spec, KindId, OperationId};
+use crate::nav::{
+    parse_deep_link, Location, RouteSegment, SchedulesRoute, UriError, WorkflowsRoute,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
-    WorkflowList,
-    WorkflowDetail,
-    ScheduleList,
-    ScheduleDetail,
+    Collection(KindId),
+    Detail(KindId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,10 +34,25 @@ pub enum Overlay {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmAction {
-    CancelWorkflow(String, Option<String>),
-    TerminateWorkflow(String, Option<String>),
-    DeleteSchedule(String),
-    TriggerSchedule(String),
+    Operation(OperationConfirm),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationConfirm {
+    pub kind: KindId,
+    pub op: OperationId,
+    pub target: OperationTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperationTarget {
+    Workflow {
+        workflow_id: String,
+        run_id: Option<String>,
+    },
+    Schedule {
+        schedule_id: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -121,7 +139,7 @@ pub struct App {
 
     // Input
     pub input_buffer: String,
-    pub search_query: Option<String>,
+    pub search_queries: HashMap<KindId, String>,
 
     // Polling
     pub polling_enabled: bool,
@@ -144,7 +162,7 @@ pub struct App {
 impl App {
     pub fn new(namespace: String) -> Self {
         Self {
-            view: View::WorkflowList,
+            view: View::Collection(KindId::WorkflowExecution),
             input_mode: InputMode::Normal,
             overlay: Overlay::None,
 
@@ -169,7 +187,7 @@ impl App {
             detail_scroll: 0,
 
             input_buffer: String::new(),
-            search_query: None,
+            search_queries: HashMap::new(),
 
             loading_more: false,
 
@@ -231,7 +249,8 @@ impl App {
             }
             Action::PageUp => {
                 if self.is_detail_view() {
-                    self.detail_scroll = self.detail_scroll.saturating_sub(self.page_height() as u16);
+                    self.detail_scroll =
+                        self.detail_scroll.saturating_sub(self.page_height() as u16);
                 } else {
                     for _ in 0..self.page_height() {
                         self.navigate_up();
@@ -241,7 +260,8 @@ impl App {
             }
             Action::PageDown => {
                 if self.is_detail_view() {
-                    self.detail_scroll = self.detail_scroll.saturating_add(self.page_height() as u16);
+                    self.detail_scroll =
+                        self.detail_scroll.saturating_add(self.page_height() as u16);
                 } else {
                     for _ in 0..self.page_height() {
                         self.navigate_down();
@@ -257,11 +277,11 @@ impl App {
                 self.active_tab = view_type.clone();
                 match view_type {
                     ViewType::Workflows => {
-                        self.view = View::WorkflowList;
+                        self.view = View::Collection(KindId::WorkflowExecution);
                         vec![Effect::LoadWorkflows]
                     }
                     ViewType::Schedules => {
-                        self.view = View::ScheduleList;
+                        self.view = View::Collection(KindId::Schedule);
                         vec![Effect::LoadSchedules]
                     }
                     ViewType::TaskQueues => {
@@ -277,50 +297,8 @@ impl App {
                 vec![]
             }
 
-            // Workflow actions
-            Action::CancelWorkflow => {
-                if let Some(wf) = self.selected_workflow_summary() {
-                    self.overlay = Overlay::Confirm(ConfirmAction::CancelWorkflow(
-                        wf.workflow_id.clone(),
-                        Some(wf.run_id.clone()),
-                    ));
-                }
-                vec![]
-            }
-            Action::TerminateWorkflow => {
-                if let Some(wf) = self.selected_workflow_summary() {
-                    self.overlay = Overlay::Confirm(ConfirmAction::TerminateWorkflow(
-                        wf.workflow_id.clone(),
-                        Some(wf.run_id.clone()),
-                    ));
-                }
-                vec![]
-            }
-
-            // Schedule actions
-            Action::PauseSchedule => {
-                if let Some(sch) = self.selected_schedule_summary() {
-                    let pause = sch.state != ScheduleState::Paused;
-                    return vec![Effect::PauseSchedule(sch.schedule_id.clone(), pause)];
-                }
-                vec![]
-            }
-            Action::TriggerSchedule => {
-                if let Some(sch) = self.selected_schedule_summary() {
-                    self.overlay = Overlay::Confirm(ConfirmAction::TriggerSchedule(
-                        sch.schedule_id.clone(),
-                    ));
-                }
-                vec![]
-            }
-            Action::DeleteSchedule => {
-                if let Some(sch) = self.selected_schedule_summary() {
-                    self.overlay = Overlay::Confirm(ConfirmAction::DeleteSchedule(
-                        sch.schedule_id.clone(),
-                    ));
-                }
-                vec![]
-            }
+            // Operations
+            Action::RunOperation(op_id) => self.run_operation(op_id),
 
             // UI
             Action::OpenCommandInput => {
@@ -330,7 +308,7 @@ impl App {
             }
             Action::OpenSearch => {
                 self.input_mode = InputMode::Search;
-                self.input_buffer = self.search_query.clone().unwrap_or_default();
+                self.input_buffer = self.current_search_query().unwrap_or_default();
                 vec![]
             }
             Action::CloseOverlay => {
@@ -354,13 +332,19 @@ impl App {
             }
             Action::SubmitSearch(query) => {
                 self.input_mode = InputMode::Normal;
+                let kind = self.current_kind_id();
                 if query.is_empty() {
-                    self.search_query = None;
+                    self.search_queries.remove(&kind);
                 } else {
-                    self.search_query = Some(query);
+                    self.search_queries.insert(kind, query);
                 }
                 self.input_buffer.clear();
-                vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
+                match kind {
+                    KindId::WorkflowExecution => {
+                        vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
+                    }
+                    KindId::Schedule => vec![Effect::LoadSchedules],
+                }
             }
             Action::ToggleHelp => {
                 self.overlay = if self.overlay == Overlay::Help {
@@ -379,31 +363,63 @@ impl App {
                 self.schedule_table_state = TableState::default();
                 self.selected_workflow = None;
                 self.selected_schedule = None;
-                self.search_query = None;
-                match self.view {
-                    View::WorkflowList | View::WorkflowDetail => {
-                        self.view = View::WorkflowList;
+                self.search_queries.clear();
+                match self.current_kind_id() {
+                    KindId::WorkflowExecution => {
+                        self.view = View::Collection(KindId::WorkflowExecution);
                         vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
                     }
-                    View::ScheduleList | View::ScheduleDetail => {
-                        self.view = View::ScheduleList;
+                    KindId::Schedule => {
+                        self.view = View::Collection(KindId::Schedule);
                         vec![Effect::LoadSchedules]
                     }
                 }
             }
             Action::NextTab => {
-                if self.view == View::WorkflowDetail {
-                    self.workflow_detail_tab = (self.workflow_detail_tab + 1) % 5;
+                if self.view == View::Detail(KindId::WorkflowExecution) {
+                    let tab_count = detail_tab_count(KindId::WorkflowExecution).max(1);
+                    self.workflow_detail_tab = (self.workflow_detail_tab + 1) % tab_count;
                     self.detail_scroll = 0;
                     return self.load_workflow_tab_data();
                 }
                 vec![]
             }
             Action::PrevTab => {
-                if self.view == View::WorkflowDetail {
-                    self.workflow_detail_tab = if self.workflow_detail_tab == 0 { 4 } else { self.workflow_detail_tab - 1 };
+                if self.view == View::Detail(KindId::WorkflowExecution) {
+                    let tab_count = detail_tab_count(KindId::WorkflowExecution).max(1);
+                    self.workflow_detail_tab = if self.workflow_detail_tab == 0 {
+                        tab_count - 1
+                    } else {
+                        self.workflow_detail_tab - 1
+                    };
                     self.detail_scroll = 0;
                     return self.load_workflow_tab_data();
+                }
+                vec![]
+            }
+            Action::OpenScheduleWorkflows => {
+                if let Some(schedule) = self.selected_schedule_summary() {
+                    let location = Location::new(
+                        self.namespace.clone(),
+                        vec![RouteSegment::Schedules(SchedulesRoute::Workflows {
+                            schedule_id: schedule.schedule_id.clone(),
+                            query: None,
+                        })],
+                    );
+                    return self.apply_location(location);
+                }
+                vec![]
+            }
+            Action::OpenWorkflowActivities => {
+                if let Some(workflow) = self.selected_workflow_summary() {
+                    let location = Location::new(
+                        self.namespace.clone(),
+                        vec![RouteSegment::Workflows(WorkflowsRoute::Activities {
+                            workflow_id: workflow.workflow_id.clone(),
+                            activity_id: None,
+                        })],
+                    );
+                    return self.apply_location(location);
                 }
                 vec![]
             }
@@ -565,11 +581,11 @@ impl App {
 
     fn handle_select(&mut self) -> Vec<Effect> {
         match self.view {
-            View::WorkflowList => {
+            View::Collection(KindId::WorkflowExecution) => {
                 if let Some(workflows) = self.workflows.data() {
                     if let Some(idx) = self.workflow_table_state.selected() {
                         if let Some(wf) = workflows.get(idx) {
-                            self.view = View::WorkflowDetail;
+                            self.view = View::Detail(KindId::WorkflowExecution);
                             self.workflow_detail_tab = 0;
                             self.workflow_history = LoadState::Loading;
                             self.task_queue_detail = LoadState::NotLoaded;
@@ -589,11 +605,11 @@ impl App {
                 }
                 vec![]
             }
-            View::ScheduleList => {
+            View::Collection(KindId::Schedule) => {
                 if let Some(schedules) = self.schedules.data() {
                     if let Some(idx) = self.schedule_table_state.selected() {
                         if let Some(sch) = schedules.get(idx) {
-                            self.view = View::ScheduleDetail;
+                            self.view = View::Detail(KindId::Schedule);
                             self.detail_scroll = 0;
                             return vec![Effect::LoadScheduleDetail(sch.schedule_id.clone())];
                         }
@@ -607,14 +623,14 @@ impl App {
 
     fn handle_back(&mut self) -> Vec<Effect> {
         match self.view {
-            View::WorkflowDetail => {
-                self.view = View::WorkflowList;
+            View::Detail(KindId::WorkflowExecution) => {
+                self.view = View::Collection(KindId::WorkflowExecution);
                 self.selected_workflow = None;
                 self.workflow_history = LoadState::NotLoaded;
                 vec![]
             }
-            View::ScheduleDetail => {
-                self.view = View::ScheduleList;
+            View::Detail(KindId::Schedule) => {
+                self.view = View::Collection(KindId::Schedule);
                 self.selected_schedule = None;
                 vec![]
             }
@@ -630,12 +646,12 @@ impl App {
         match command.as_str() {
             "workflows" | "wf" => {
                 self.active_tab = ViewType::Workflows;
-                self.view = View::WorkflowList;
+                self.view = View::Collection(KindId::WorkflowExecution);
                 vec![Effect::LoadWorkflows]
             }
             "schedules" | "sch" => {
                 self.active_tab = ViewType::Schedules;
-                self.view = View::ScheduleList;
+                self.view = View::Collection(KindId::Schedule);
                 vec![Effect::LoadSchedules]
             }
             "signal" | "sig" => {
@@ -651,12 +667,36 @@ impl App {
                             signal_input,
                         )];
                     } else {
-                        self.last_error = Some(("no workflow selected".to_string(), Instant::now()));
+                        self.last_error =
+                            Some(("no workflow selected".to_string(), Instant::now()));
                     }
                 } else {
-                    self.last_error = Some(("usage: :signal <name> [json-input]".to_string(), Instant::now()));
+                    self.last_error = Some((
+                        "usage: :signal <name> [json-input]".to_string(),
+                        Instant::now(),
+                    ));
                 }
                 vec![]
+            }
+            "open" | "goto" => {
+                if let Some(uri) = args {
+                    match parse_deep_link(uri) {
+                        Ok(location) => return self.apply_location(location),
+                        Err(err) => {
+                            self.last_error = Some((
+                                format!("invalid uri: {}", format_uri_error(err)),
+                                Instant::now(),
+                            ));
+                            vec![]
+                        }
+                    }
+                } else {
+                    self.last_error = Some((
+                        "usage: :open temporal://tui/namespaces/<ns>/...".to_string(),
+                        Instant::now(),
+                    ));
+                    vec![]
+                }
             }
             "namespace" | "ns" => {
                 if let Some(ns_name) = args {
@@ -688,8 +728,10 @@ impl App {
 
     fn refresh_current_view(&mut self) -> Vec<Effect> {
         match self.view {
-            View::WorkflowList => vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount],
-            View::WorkflowDetail => {
+            View::Collection(KindId::WorkflowExecution) => {
+                vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
+            }
+            View::Detail(KindId::WorkflowExecution) => {
                 if let Some(ref wf) = self.selected_workflow {
                     vec![Effect::LoadWorkflowDetail(
                         wf.summary.workflow_id.clone(),
@@ -699,8 +741,8 @@ impl App {
                     vec![]
                 }
             }
-            View::ScheduleList => vec![Effect::LoadSchedules],
-            View::ScheduleDetail => {
+            View::Collection(KindId::Schedule) => vec![Effect::LoadSchedules],
+            View::Detail(KindId::Schedule) => {
                 if let Some(ref sch) = self.selected_schedule {
                     vec![Effect::LoadScheduleDetail(sch.schedule_id.clone())]
                 } else {
@@ -712,12 +754,12 @@ impl App {
 
     fn selected_workflow_summary(&self) -> Option<&WorkflowSummary> {
         match self.view {
-            View::WorkflowList => {
+            View::Collection(KindId::WorkflowExecution) => {
                 let workflows = self.workflows.data()?;
                 let idx = self.workflow_table_state.selected()?;
                 workflows.get(idx)
             }
-            View::WorkflowDetail => {
+            View::Detail(KindId::WorkflowExecution) => {
                 self.selected_workflow.as_ref().map(|d| &d.summary)
             }
             _ => None,
@@ -726,22 +768,22 @@ impl App {
 
     fn selected_schedule_summary(&self) -> Option<&Schedule> {
         match self.view {
-            View::ScheduleList => {
+            View::Collection(KindId::Schedule) => {
                 let schedules = self.schedules.data()?;
                 let idx = self.schedule_table_state.selected()?;
                 schedules.get(idx)
             }
-            View::ScheduleDetail => self.selected_schedule.as_ref(),
+            View::Detail(KindId::Schedule) => self.selected_schedule.as_ref(),
             _ => None,
         }
     }
 
     fn navigate_up(&mut self) {
         match self.view {
-            View::WorkflowList => {
+            View::Collection(KindId::WorkflowExecution) => {
                 self.workflow_table_state.select_previous();
             }
-            View::ScheduleList => {
+            View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_previous();
             }
             _ => {}
@@ -750,8 +792,12 @@ impl App {
 
     fn navigate_down(&mut self) {
         let len = match self.view {
-            View::WorkflowList => self.workflows.data().map(|w| w.len()).unwrap_or(0),
-            View::ScheduleList => self.schedules.data().map(|s| s.len()).unwrap_or(0),
+            View::Collection(KindId::WorkflowExecution) => {
+                self.workflows.data().map(|w| w.len()).unwrap_or(0)
+            }
+            View::Collection(KindId::Schedule) => {
+                self.schedules.data().map(|s| s.len()).unwrap_or(0)
+            }
             _ => return,
         };
 
@@ -760,10 +806,10 @@ impl App {
         }
 
         match self.view {
-            View::WorkflowList => {
+            View::Collection(KindId::WorkflowExecution) => {
                 self.workflow_table_state.select_next();
             }
-            View::ScheduleList => {
+            View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_next();
             }
             _ => {}
@@ -773,10 +819,10 @@ impl App {
     fn navigate_top(&mut self) {
         self.input_mode = InputMode::Normal;
         match self.view {
-            View::WorkflowList => {
+            View::Collection(KindId::WorkflowExecution) => {
                 self.workflow_table_state.select_first();
             }
-            View::ScheduleList => {
+            View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_first();
             }
             _ => {}
@@ -785,10 +831,10 @@ impl App {
 
     fn navigate_bottom(&mut self) {
         match self.view {
-            View::WorkflowList => {
+            View::Collection(KindId::WorkflowExecution) => {
                 self.workflow_table_state.select_last();
             }
-            View::ScheduleList => {
+            View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_last();
             }
             _ => {}
@@ -796,7 +842,7 @@ impl App {
     }
 
     fn is_detail_view(&self) -> bool {
-        matches!(self.view, View::WorkflowDetail | View::ScheduleDetail)
+        matches!(self.view, View::Detail(_))
     }
 
     fn load_workflow_tab_data(&mut self) -> Vec<Effect> {
@@ -821,6 +867,208 @@ impl App {
         }
     }
 
+    pub fn location(&self) -> Location {
+        let segments = match self.view {
+            View::Collection(KindId::WorkflowExecution) => {
+                vec![RouteSegment::Workflows(WorkflowsRoute::Collection {
+                    query: self.search_queries.get(&KindId::WorkflowExecution).cloned(),
+                })]
+            }
+            View::Detail(KindId::WorkflowExecution) => {
+                if let Some(ref detail) = self.selected_workflow {
+                    vec![RouteSegment::Workflows(WorkflowsRoute::Detail {
+                        workflow_id: detail.summary.workflow_id.clone(),
+                        run_id: Some(detail.summary.run_id.clone()),
+                        tab: None,
+                    })]
+                } else {
+                    vec![RouteSegment::Workflows(WorkflowsRoute::Collection {
+                        query: self.search_queries.get(&KindId::WorkflowExecution).cloned(),
+                    })]
+                }
+            }
+            View::Collection(KindId::Schedule) => {
+                vec![RouteSegment::Schedules(SchedulesRoute::Collection {
+                    query: self.search_queries.get(&KindId::Schedule).cloned(),
+                })]
+            }
+            View::Detail(KindId::Schedule) => {
+                if let Some(ref schedule) = self.selected_schedule {
+                    vec![RouteSegment::Schedules(SchedulesRoute::Detail {
+                        schedule_id: schedule.schedule_id.clone(),
+                    })]
+                } else {
+                    vec![RouteSegment::Schedules(SchedulesRoute::Collection {
+                        query: self.search_queries.get(&KindId::Schedule).cloned(),
+                    })]
+                }
+            }
+        };
+
+        Location::new(self.namespace.clone(), segments)
+    }
+
+    fn apply_location(&mut self, location: Location) -> Vec<Effect> {
+        let namespace = location.namespace.clone();
+        let namespace_changed = self.namespace != namespace;
+        if namespace_changed {
+            self.namespace = namespace;
+            self.workflows = LoadState::NotLoaded;
+            self.schedules = LoadState::NotLoaded;
+            self.workflow_history = LoadState::NotLoaded;
+            self.task_queue_detail = LoadState::NotLoaded;
+            self.workflow_table_state = TableState::default();
+            self.schedule_table_state = TableState::default();
+            self.selected_workflow = None;
+            self.selected_schedule = None;
+            self.workflow_detail_tab = 0;
+            self.detail_scroll = 0;
+            self.next_page_token = vec![];
+            self.loading_more = false;
+            self.search_queries.clear();
+        }
+
+        let Some(segment) = location.leaf() else {
+            self.last_error = Some(("invalid uri: missing route".to_string(), Instant::now()));
+            return vec![];
+        };
+
+        match segment {
+            RouteSegment::Workflows(route) => match route {
+                WorkflowsRoute::Collection { query } => {
+                    self.set_kind_query(KindId::WorkflowExecution, query.clone());
+                    self.active_tab = ViewType::Workflows;
+                    self.view = View::Collection(KindId::WorkflowExecution);
+                    vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
+                }
+                WorkflowsRoute::Detail {
+                    workflow_id,
+                    run_id,
+                    tab,
+                } => {
+                    self.active_tab = ViewType::Workflows;
+                    self.view = View::Detail(KindId::WorkflowExecution);
+                    self.workflow_detail_tab =
+                        tab.as_deref().map(workflow_tab_from_param).unwrap_or(0);
+                    self.detail_scroll = 0;
+                    self.workflow_history = LoadState::Loading;
+                    self.task_queue_detail = LoadState::NotLoaded;
+                    vec![
+                        Effect::LoadWorkflowDetail(workflow_id.clone(), run_id.clone()),
+                        Effect::LoadHistory(workflow_id.clone(), run_id.clone()),
+                    ]
+                }
+                WorkflowsRoute::Activities { workflow_id, .. } => {
+                    self.active_tab = ViewType::Workflows;
+                    self.view = View::Detail(KindId::WorkflowExecution);
+                    self.workflow_detail_tab = 3;
+                    self.detail_scroll = 0;
+                    self.workflow_history = LoadState::Loading;
+                    self.task_queue_detail = LoadState::NotLoaded;
+                    vec![
+                        Effect::LoadWorkflowDetail(workflow_id.clone(), None),
+                        Effect::LoadHistory(workflow_id.clone(), None),
+                    ]
+                }
+            },
+            RouteSegment::Schedules(route) => match route {
+                SchedulesRoute::Collection { query } => {
+                    self.set_kind_query(KindId::Schedule, query.clone());
+                    self.active_tab = ViewType::Schedules;
+                    self.view = View::Collection(KindId::Schedule);
+                    vec![Effect::LoadSchedules]
+                }
+                SchedulesRoute::Detail { schedule_id } => {
+                    self.active_tab = ViewType::Schedules;
+                    self.view = View::Detail(KindId::Schedule);
+                    self.detail_scroll = 0;
+                    vec![Effect::LoadScheduleDetail(schedule_id.clone())]
+                }
+                SchedulesRoute::Workflows { schedule_id, query } => {
+                    let combined = combine_schedule_workflow_query(schedule_id, query.as_deref());
+                    self.set_kind_query(KindId::WorkflowExecution, Some(combined));
+                    self.active_tab = ViewType::Workflows;
+                    self.view = View::Collection(KindId::WorkflowExecution);
+                    vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
+                }
+            },
+        }
+    }
+
+    pub fn search_query_for_kind(&self, kind: KindId) -> Option<String> {
+        self.search_queries.get(&kind).cloned()
+    }
+
+    fn current_search_query(&self) -> Option<String> {
+        self.search_query_for_kind(self.current_kind_id())
+    }
+
+    fn current_kind_id(&self) -> KindId {
+        match self.view {
+            View::Collection(kind) | View::Detail(kind) => kind,
+        }
+    }
+
+    fn set_kind_query(&mut self, kind: KindId, query: Option<String>) {
+        if let Some(query) = query {
+            self.search_queries.insert(kind, query);
+        } else {
+            self.search_queries.remove(&kind);
+        }
+    }
+
+    fn run_operation(&mut self, op_id: OperationId) -> Vec<Effect> {
+        let kind = self.current_kind_id();
+        let Some(spec) = operation_spec(kind, op_id) else {
+            return vec![];
+        };
+        let Some(effect_spec) = operation_effect_spec(op_id, kind) else {
+            return vec![];
+        };
+
+        match kind {
+            KindId::WorkflowExecution => {
+                let Some(wf) = self.selected_workflow_summary() else {
+                    self.last_error = Some(("no workflow selected".to_string(), Instant::now()));
+                    return vec![];
+                };
+                let target = OperationTarget::Workflow {
+                    workflow_id: wf.workflow_id.clone(),
+                    run_id: Some(wf.run_id.clone()),
+                };
+                if spec.requires_confirm {
+                    self.overlay = Overlay::Confirm(ConfirmAction::Operation(OperationConfirm {
+                        kind,
+                        op: op_id,
+                        target,
+                    }));
+                    vec![]
+                } else {
+                    (effect_spec.to_effects)(&target, self)
+                }
+            }
+            KindId::Schedule => {
+                let Some(sch) = self.selected_schedule_summary() else {
+                    self.last_error = Some(("no schedule selected".to_string(), Instant::now()));
+                    return vec![];
+                };
+                let target = OperationTarget::Schedule {
+                    schedule_id: sch.schedule_id.clone(),
+                };
+                if spec.requires_confirm {
+                    self.overlay = Overlay::Confirm(ConfirmAction::Operation(OperationConfirm {
+                        kind,
+                        op: op_id,
+                        target,
+                    }));
+                    vec![]
+                } else {
+                    (effect_spec.to_effects)(&target, self)
+                }
+            }
+        }
+    }
+
     fn reset_backoff(&mut self) {
         self.error_count = 0;
         self.polling_interval = self.base_polling_interval;
@@ -833,7 +1081,10 @@ impl App {
     }
 
     fn maybe_load_more(&mut self) -> Vec<Effect> {
-        if self.view != View::WorkflowList || self.loading_more || self.next_page_token.is_empty() {
+        if self.view != View::Collection(KindId::WorkflowExecution)
+            || self.loading_more
+            || self.next_page_token.is_empty()
+        {
             return vec![];
         }
         if let Some(workflows) = self.workflows.data() {
@@ -849,5 +1100,94 @@ impl App {
 
     fn page_height(&self) -> usize {
         20 // approximate; could be made dynamic
+    }
+}
+
+fn workflow_tab_from_param(tab: &str) -> usize {
+    match tab.to_lowercase().as_str() {
+        "summary" => 0,
+        "io" | "input" | "output" | "input-output" | "input_output" => 1,
+        "history" => 2,
+        "pending" | "pending-activities" | "pending_activities" | "activities" => 3,
+        "task-queue" | "task_queue" | "taskqueue" => 4,
+        _ => 0,
+    }
+}
+
+fn combine_schedule_workflow_query(schedule_id: &str, extra: Option<&str>) -> String {
+    let base = format!(
+        "TemporalScheduledById = '{}'",
+        escape_single_quotes(schedule_id)
+    );
+    let Some(extra) = extra else {
+        return base;
+    };
+
+    let trimmed = extra.trim();
+    if trimmed.is_empty() {
+        return base;
+    }
+
+    format!("({}) AND ({})", base, trimmed)
+}
+
+fn escape_single_quotes(input: &str) -> String {
+    input.replace('\'', "\\'")
+}
+
+fn format_uri_error(err: UriError) -> &'static str {
+    match err {
+        UriError::InvalidScheme => "invalid scheme",
+        UriError::InvalidAuthority => "invalid authority",
+        UriError::MissingNamespace => "missing namespace",
+        UriError::InvalidPath => "invalid path",
+        UriError::UnsupportedRoute => "unsupported route",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_schedule_workflows_location_sets_query() {
+        let mut app = App::new("default".to_string());
+        app.selected_schedule = Some(Schedule {
+            schedule_id: "nightly".to_string(),
+            workflow_type: "SyncWorkflow".to_string(),
+            state: ScheduleState::Active,
+            spec_description: String::new(),
+            next_run: None,
+            recent_action_count: 0,
+            notes: String::new(),
+        });
+
+        let location = Location::new(
+            "default".to_string(),
+            vec![RouteSegment::Schedules(SchedulesRoute::Workflows {
+                schedule_id: "nightly".to_string(),
+                query: Some("ExecutionStatus = 'Failed'".to_string()),
+            })],
+        );
+
+        let effects = app.apply_location(location);
+
+        assert!(matches!(
+            app.view,
+            View::Collection(KindId::WorkflowExecution)
+        ));
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::LoadWorkflows)));
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::LoadWorkflowCount)));
+        let query = app
+            .search_query_for_kind(KindId::WorkflowExecution)
+            .expect("query set");
+        assert_eq!(
+            query,
+            "(TemporalScheduledById = 'nightly') AND (ExecutionStatus = 'Failed')"
+        );
     }
 }

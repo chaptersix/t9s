@@ -4,52 +4,67 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::{App, ConnectionStatus, View};
+use crate::app::{App, ConnectionStatus};
+use crate::kinds::KindId;
+use crate::nav::{RouteSegment, SchedulesRoute, WorkflowsRoute};
 use crate::theme;
 
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let mut left_spans: Vec<Span> = vec![
-        Span::styled(" t9s ", Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " t9s ",
+            Style::default()
+                .fg(theme::PURPLE)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("| ", Style::default().fg(theme::TEXT_MUTED)),
     ];
 
-    // Breadcrumb: view name
-    let view_label = match app.view {
-        View::WorkflowList | View::WorkflowDetail => "Workflows",
-        View::ScheduleList | View::ScheduleDetail => "Schedules",
-    };
-    left_spans.push(Span::styled(
-        view_label,
-        Style::default()
-            .fg(theme::TEXT)
-            .add_modifier(Modifier::BOLD),
-    ));
-
-    // Breadcrumb: detail item
-    match app.view {
-        View::WorkflowDetail => {
-            if let Some(ref wf) = app.selected_workflow {
-                left_spans.push(Span::styled(" > ", Style::default().fg(theme::TEXT_MUTED)));
+    let location = app.location();
+    let mut active_query = None;
+    if let Some(segment) = location.leaf() {
+        match segment {
+            RouteSegment::Workflows(route) => {
+                active_query = app.search_query_for_kind(KindId::WorkflowExecution);
                 left_spans.push(Span::styled(
-                    &wf.summary.workflow_id,
-                    Style::default().fg(theme::TEXT_DIM),
+                    "Workflows",
+                    Style::default()
+                        .fg(theme::TEXT)
+                        .add_modifier(Modifier::BOLD),
                 ));
+                if let WorkflowsRoute::Detail { workflow_id, .. }
+                | WorkflowsRoute::Activities { workflow_id, .. } = route
+                {
+                    left_spans.push(Span::styled(" > ", Style::default().fg(theme::TEXT_MUTED)));
+                    left_spans.push(Span::styled(
+                        workflow_id,
+                        Style::default().fg(theme::TEXT_DIM),
+                    ));
+                }
+            }
+            RouteSegment::Schedules(route) => {
+                active_query = app.search_query_for_kind(KindId::Schedule);
+                left_spans.push(Span::styled(
+                    "Schedules",
+                    Style::default()
+                        .fg(theme::TEXT)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                if let SchedulesRoute::Detail { schedule_id }
+                | SchedulesRoute::Workflows { schedule_id, .. } = route
+                {
+                    left_spans.push(Span::styled(" > ", Style::default().fg(theme::TEXT_MUTED)));
+                    left_spans.push(Span::styled(
+                        schedule_id,
+                        Style::default().fg(theme::TEXT_DIM),
+                    ));
+                }
             }
         }
-        View::ScheduleDetail => {
-            if let Some(ref sch) = app.selected_schedule {
-                left_spans.push(Span::styled(" > ", Style::default().fg(theme::TEXT_MUTED)));
-                left_spans.push(Span::styled(
-                    &sch.schedule_id,
-                    Style::default().fg(theme::TEXT_DIM),
-                ));
-            }
-        }
-        _ => {}
     }
 
     // Active search indicator
-    if let Some(ref query) = app.search_query {
+    if let Some(ref query) = active_query {
         left_spans.push(Span::styled("  /", Style::default().fg(theme::GREEN)));
         left_spans.push(Span::styled(
             query.as_str(),

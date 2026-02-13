@@ -8,9 +8,11 @@ use tokio::sync::mpsc;
 
 use t9s::action::Action;
 use t9s::app::{App, ConfirmAction, Effect, InputMode, Overlay, View};
+use t9s::kinds::{detail_spec, operation_effect_spec};
 use t9s::client::GrpcTemporalClient;
 use t9s::config::Cli;
 use t9s::event::{key_to_action, AppEvent, RawEventHandler};
+use t9s::kinds::KindId;
 use t9s::widgets;
 use t9s::worker::{CliRequest, CliWorker};
 
@@ -106,18 +108,12 @@ async fn run_tui(cli: Cli) -> Result<()> {
                             match key.code {
                                 crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {
                                     let effects = match confirm_action.clone() {
-                                        ConfirmAction::CancelWorkflow(id, run_id) => {
-                                            vec![Effect::CancelWorkflow(id, run_id)]
-                                        }
-                                        ConfirmAction::TerminateWorkflow(id, run_id) => {
-                                            vec![Effect::TerminateWorkflow(id, run_id)]
-                                        }
-                                        ConfirmAction::DeleteSchedule(id) => {
-                                            vec![Effect::DeleteSchedule(id)]
-                                        }
-                                        ConfirmAction::TriggerSchedule(id) => {
-                                            vec![Effect::TriggerSchedule(id)]
-                                        }
+                                        ConfirmAction::Operation(confirm) => operation_effect_spec(
+                                            confirm.op,
+                                            confirm.kind,
+                                        )
+                                        .map(|spec| (spec.to_effects)(&confirm.target, &app))
+                                        .unwrap_or_default(),
                                     };
                                     app.overlay = Overlay::None;
                                     handle_effects(effects, &cli_handle, &app);
@@ -222,10 +218,32 @@ fn render(app: &mut App, frame: &mut ratatui::Frame) {
     // Content area
     let content_area = layout[1];
     match app.view {
-        View::WorkflowList => widgets::workflow_list::render(app, frame, content_area),
-        View::WorkflowDetail => widgets::workflow_detail::render(app, frame, content_area),
-        View::ScheduleList => widgets::schedule_list::render(app, frame, content_area),
-        View::ScheduleDetail => widgets::schedule_detail::render(app, frame, content_area),
+        View::Collection(t9s::kinds::KindId::WorkflowExecution) => {
+            widgets::collection::render_kind_collection(
+                app,
+                frame,
+                content_area,
+                t9s::kinds::KindId::WorkflowExecution,
+            )
+        }
+        View::Detail(t9s::kinds::KindId::WorkflowExecution) => {
+            if let Some(spec) = detail_spec(t9s::kinds::KindId::WorkflowExecution) {
+                (spec.render)(app, frame, content_area);
+            }
+        }
+        View::Collection(t9s::kinds::KindId::Schedule) => {
+            widgets::collection::render_kind_collection(
+                app,
+                frame,
+                content_area,
+                t9s::kinds::KindId::Schedule,
+            )
+        }
+        View::Detail(t9s::kinds::KindId::Schedule) => {
+            if let Some(spec) = detail_spec(t9s::kinds::KindId::Schedule) {
+                (spec.render)(app, frame, content_area);
+            }
+        }
     }
 
     // Footer
@@ -262,7 +280,7 @@ fn handle_effects(
             Effect::LoadWorkflows => {
                 cli_handle.send(CliRequest::LoadWorkflows {
                     namespace: app.namespace.clone(),
-                    query: app.search_query.clone(),
+                    query: app.search_query_for_kind(KindId::WorkflowExecution),
                     page_size: app.page_size,
                     next_page_token: vec![],
                 });
@@ -270,7 +288,7 @@ fn handle_effects(
             Effect::LoadMoreWorkflows => {
                 cli_handle.send(CliRequest::LoadMoreWorkflows {
                     namespace: app.namespace.clone(),
-                    query: app.search_query.clone(),
+                    query: app.search_query_for_kind(KindId::WorkflowExecution),
                     page_size: app.page_size,
                     next_page_token: app.next_page_token.clone(),
                 });
@@ -295,6 +313,7 @@ fn handle_effects(
             Effect::LoadSchedules => {
                 cli_handle.send(CliRequest::LoadSchedules {
                     namespace: app.namespace.clone(),
+                    query: app.search_query_for_kind(KindId::Schedule),
                 });
             }
             Effect::LoadScheduleDetail(schedule_id) => {
@@ -306,7 +325,7 @@ fn handle_effects(
             Effect::LoadWorkflowCount => {
                 cli_handle.send(CliRequest::LoadWorkflowCount {
                     namespace: app.namespace.clone(),
-                    query: app.search_query.clone(),
+                    query: app.search_query_for_kind(KindId::WorkflowExecution),
                 });
             }
             Effect::CancelWorkflow(wf_id, run_id) => {

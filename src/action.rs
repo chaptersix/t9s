@@ -1,4 +1,5 @@
 use crate::domain::*;
+use crate::kinds::OperationId;
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -18,14 +19,8 @@ pub enum Action {
     // Vim chord
     EnterPendingG,
 
-    // Workflow actions
-    CancelWorkflow,
-    TerminateWorkflow,
-
-    // Schedule actions
-    PauseSchedule,
-    TriggerSchedule,
-    DeleteSchedule,
+    // Operations
+    RunOperation(OperationId),
 
     // UI
     OpenCommandInput,
@@ -40,6 +35,10 @@ pub enum Action {
     // Tab navigation (for detail views)
     NextTab,
     PrevTab,
+
+    // Nested navigation
+    OpenScheduleWorkflows,
+    OpenWorkflowActivities,
 
     // Data responses
     WorkflowsLoaded(Vec<WorkflowSummary>, Vec<u8>),

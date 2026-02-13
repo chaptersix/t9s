@@ -5,15 +5,22 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::app::View;
+use crate::kinds::{kind_spec, KindId};
 use crate::theme;
 
 pub fn render(view: &View, frame: &mut Frame, area: Rect) {
     let mut lines = vec![];
 
-    let is_list = matches!(view, View::WorkflowList | View::ScheduleList);
-    let is_detail = matches!(view, View::WorkflowDetail | View::ScheduleDetail);
-    let is_workflow = matches!(view, View::WorkflowList | View::WorkflowDetail);
-    let is_schedule = matches!(view, View::ScheduleList | View::ScheduleDetail);
+    let is_list = matches!(view, View::Collection(_));
+    let is_detail = matches!(view, View::Detail(_));
+    let is_workflow = matches!(
+        view,
+        View::Collection(KindId::WorkflowExecution) | View::Detail(KindId::WorkflowExecution)
+    );
+    let is_schedule = matches!(
+        view,
+        View::Collection(KindId::Schedule) | View::Detail(KindId::Schedule)
+    );
 
     lines.push(Line::from(""));
     lines.push(section("Navigation"));
@@ -39,6 +46,7 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
     lines.push(Line::from(""));
     lines.push(section("Commands"));
     lines.push(binding(":ns <name>", "Switch namespace"));
+    lines.push(binding(":open <uri>", "Open a deep link URI"));
     if is_workflow {
         lines.push(binding(":signal <name>", "Signal selected workflow"));
     }
@@ -47,19 +55,27 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
     if is_workflow {
         lines.push(Line::from(""));
         lines.push(section("Workflow Actions"));
-        lines.push(binding("c", "Cancel workflow"));
-        lines.push(binding("t", "Terminate workflow"));
+        for op in kind_spec(KindId::WorkflowExecution).operations {
+            lines.push(binding(&op.key.to_string(), op.label));
+        }
         if is_detail {
             lines.push(binding("h / l", "Switch detail tabs"));
+            lines.push(binding("a", "Pending activities"));
         }
     }
 
     if is_schedule {
         lines.push(Line::from(""));
         lines.push(section("Schedule Actions"));
-        lines.push(binding("p", "Pause/unpause schedule"));
-        lines.push(binding("T (shift+t)", "Trigger schedule"));
-        lines.push(binding("d", "Delete schedule"));
+        for op in kind_spec(KindId::Schedule).operations {
+            let key = if op.key == 'T' {
+                "T (shift+t)".to_string()
+            } else {
+                op.key.to_string()
+            };
+            lines.push(binding(&key, op.label));
+        }
+        lines.push(binding("w", "Schedule workflows"));
     }
 
     lines.push(Line::from(""));
@@ -89,9 +105,14 @@ fn section(title: &str) -> Line<'_> {
     ))
 }
 
-fn binding<'a>(key: &'a str, desc: &'a str) -> Line<'a> {
+fn binding(key: impl Into<String>, desc: impl Into<String>) -> Line<'static> {
+    let key = key.into();
+    let desc = desc.into();
     Line::from(vec![
-        Span::styled(format!("    {:<22}", key), Style::default().fg(theme::YELLOW)),
+        Span::styled(
+            format!("    {:<22}", key),
+            Style::default().fg(theme::YELLOW),
+        ),
         Span::styled(desc, Style::default().fg(theme::TEXT)),
     ])
 }

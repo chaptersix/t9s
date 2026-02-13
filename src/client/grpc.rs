@@ -400,12 +400,13 @@ impl TemporalClient for GrpcTemporalClient {
     async fn list_schedules(
         &self,
         namespace: &str,
+        query: Option<&str>,
     ) -> ClientResult<Vec<Schedule>> {
         let inner = proto::ListSchedulesRequest {
             namespace: namespace.to_string(),
             maximum_page_size: 100,
             next_page_token: vec![],
-            query: String::new(),
+            query: query.unwrap_or("").to_string(),
         };
 
         let response = self

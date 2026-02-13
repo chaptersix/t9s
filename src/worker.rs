@@ -36,6 +36,7 @@ pub enum CliRequest {
     },
     LoadSchedules {
         namespace: String,
+        query: Option<String>,
     },
     LoadScheduleDetail {
         namespace: String,
@@ -192,8 +193,12 @@ impl CliWorker {
                     Err(e) => Action::Error(format!("failed to count workflows: {}", e)),
                 }
             }
-            CliRequest::LoadSchedules { namespace } => {
-                match self.client.list_schedules(&namespace).await {
+            CliRequest::LoadSchedules { namespace, query } => {
+                match self
+                    .client
+                    .list_schedules(&namespace, query.as_deref())
+                    .await
+                {
                     Ok(schedules) => Action::SchedulesLoaded(schedules),
                     Err(e) => Action::Error(format!("failed to load schedules: {}", e)),
                 }

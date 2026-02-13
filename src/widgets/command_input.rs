@@ -4,8 +4,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, View};
 use crate::input::commands::{matching_commands, COMMANDS};
+use crate::kinds::KindId;
 use crate::theme;
 
 pub fn render_command_modal(app: &App, frame: &mut Frame, area: Rect) {
@@ -77,7 +78,7 @@ pub fn render_search_modal(app: &App, frame: &mut Frame, area: Rect) {
     let modal_area = centered_rect(60, 10, area);
     frame.render_widget(Clear, modal_area);
 
-    let lines = vec![
+    let mut lines = vec![
         // Input line: `/` prefix + input text + cursor
         Line::from(vec![
             Span::styled("/", Style::default().fg(theme::GREEN)),
@@ -86,29 +87,26 @@ pub fn render_search_modal(app: &App, frame: &mut Frame, area: Rect) {
         ]),
         // Separator
         Line::from(""),
-        // Visibility query examples
         Line::from(Span::styled(
             "Examples:",
             Style::default().fg(theme::TEXT_DIM),
         )),
-        Line::from(Span::styled(
-            "  WorkflowType = 'MyWorkflow'",
+    ];
+
+    for example in search_examples(app) {
+        lines.push(Line::from(Span::styled(
+            format!("  {}", example),
             Style::default().fg(theme::TEXT_MUTED),
-        )),
-        Line::from(Span::styled(
-            "  ExecutionStatus = 'Running'",
-            Style::default().fg(theme::TEXT_MUTED),
-        )),
-        Line::from(Span::styled(
-            "  WorkflowId = 'order-123'",
-            Style::default().fg(theme::TEXT_MUTED),
-        )),
+        )));
+    }
+
+    lines.extend([
         Line::from(""),
         Line::from(Span::styled(
             "Enter to search | Esc to cancel",
             Style::default().fg(theme::TEXT_DIM),
         )),
-    ];
+    ]);
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -117,6 +115,21 @@ pub fn render_search_modal(app: &App, frame: &mut Frame, area: Rect) {
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, modal_area);
+}
+
+fn search_examples(app: &App) -> Vec<&'static str> {
+    match app.view {
+        View::Collection(KindId::Schedule) | View::Detail(KindId::Schedule) => vec![
+            "TemporalSchedulePaused = true",
+            "ScheduleId = 'nightly-reconcile'",
+            "WorkflowType = 'SyncWorkflow'",
+        ],
+        _ => vec![
+            "WorkflowType = 'MyWorkflow'",
+            "ExecutionStatus = 'Running'",
+            "WorkflowId = 'order-123'",
+        ],
+    }
 }
 
 fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {

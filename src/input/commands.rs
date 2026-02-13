@@ -26,6 +26,12 @@ pub static COMMANDS: &[CommandDef] = &[
         description: "Signal workflow (e.g. :signal my-signal {\"key\":\"val\"})",
     },
     CommandDef {
+        name: "open",
+        aliases: &["goto"],
+        description:
+            "Open a deep link URI (e.g. :open temporal://tui/namespaces/default/workflows)",
+    },
+    CommandDef {
         name: "quit",
         aliases: &["q"],
         description: "Quit t9s",

@@ -4,15 +4,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::ConfirmAction;
+use crate::app::{ConfirmAction, OperationConfirm, OperationTarget};
+use crate::kinds::OperationId;
 use crate::theme;
 
 pub fn render(action: &ConfirmAction, frame: &mut Frame, area: Rect) {
     let message = match action {
-        ConfirmAction::CancelWorkflow(id, _) => format!("Cancel workflow {}?", id),
-        ConfirmAction::TerminateWorkflow(id, _) => format!("Terminate workflow {}?", id),
-        ConfirmAction::DeleteSchedule(id) => format!("Delete schedule {}?", id),
-        ConfirmAction::TriggerSchedule(id) => format!("Trigger schedule {}?", id),
+        ConfirmAction::Operation(confirm) => confirm_message(confirm),
     };
 
     let modal_area = centered_rect(50, 7, area);
@@ -23,7 +21,9 @@ pub fn render(action: &ConfirmAction, frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(
             format!("  {}", message),
-            Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::YELLOW)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
@@ -51,4 +51,21 @@ fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
         .flex(Flex::Center)
         .split(vertical[0]);
     horizontal[0]
+}
+
+fn confirm_message(confirm: &OperationConfirm) -> String {
+    let label = match confirm.op {
+        OperationId::CancelWorkflow => "Cancel workflow",
+        OperationId::TerminateWorkflow => "Terminate workflow",
+        OperationId::TriggerSchedule => "Trigger schedule",
+        OperationId::DeleteSchedule => "Delete schedule",
+        OperationId::PauseSchedule => "Pause schedule",
+    };
+
+    match &confirm.target {
+        OperationTarget::Workflow { workflow_id, .. } => {
+            format!("{} {}?", label, workflow_id)
+        }
+        OperationTarget::Schedule { schedule_id } => format!("{} {}?", label, schedule_id),
+    }
 }

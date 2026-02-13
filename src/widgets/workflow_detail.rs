@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
+use crate::kinds::detail_tabs_for_kind;
 use crate::theme;
 
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
@@ -20,12 +21,12 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
 
     let layout = Layout::vertical([
         Constraint::Length(1), // tab bar
-        Constraint::Fill(1),  // content
+        Constraint::Fill(1),   // content
     ])
     .split(area);
 
     // Tab bar
-    let tabs = ["Summary", "Input/Output", "History", "Pending Activities", "Task Queue"];
+    let tabs = detail_tabs_for_kind(crate::kinds::KindId::WorkflowExecution).unwrap_or(&[]);
     let mut tab_spans: Vec<Span> = vec![Span::raw(" ")];
     for (i, tab) in tabs.iter().enumerate() {
         let style = if i == app.workflow_detail_tab {
@@ -52,7 +53,12 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     }
 }
 
-fn render_summary(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Rect, scroll: u16) {
+fn render_summary(
+    detail: &crate::domain::WorkflowDetail,
+    frame: &mut Frame,
+    area: Rect,
+    scroll: u16,
+) {
     let wf = &detail.summary;
     let started = format_time(&wf.start_time);
     let closed = wf
@@ -86,7 +92,9 @@ fn render_io(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Re
 
     lines.push(Line::from(Span::styled(
         " Input:",
-        Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(theme::PURPLE)
+            .add_modifier(Modifier::BOLD),
     )));
     if let Some(ref input) = detail.input {
         let formatted = serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
@@ -107,7 +115,9 @@ fn render_io(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Re
 
     lines.push(Line::from(Span::styled(
         " Output:",
-        Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(theme::GREEN)
+            .add_modifier(Modifier::BOLD),
     )));
     if let Some(ref output) = detail.output {
         let formatted = serde_json::to_string_pretty(output).unwrap_or_else(|_| output.to_string());
@@ -221,7 +231,12 @@ fn render_history(app: &App, frame: &mut Frame, area: Rect, scroll: u16) {
     }
 }
 
-fn render_pending(detail: &crate::domain::WorkflowDetail, frame: &mut Frame, area: Rect, scroll: u16) {
+fn render_pending(
+    detail: &crate::domain::WorkflowDetail,
+    frame: &mut Frame,
+    area: Rect,
+    scroll: u16,
+) {
     if detail.pending_activities.is_empty() {
         frame.render_widget(
             Paragraph::new(" No pending activities").style(Style::default().fg(theme::TEXT_MUTED)),
@@ -328,8 +343,11 @@ fn render_task_queue(
         _ => {
             let tq_name = &detail.summary.task_queue;
             frame.render_widget(
-                Paragraph::new(format!(" Task queue: {} (press Tab or 'l' to load)", tq_name))
-                    .style(Style::default().fg(theme::TEXT_MUTED)),
+                Paragraph::new(format!(
+                    " Task queue: {} (press Tab or 'l' to load)",
+                    tq_name
+                ))
+                .style(Style::default().fg(theme::TEXT_MUTED)),
                 area,
             );
         }

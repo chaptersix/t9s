@@ -80,6 +80,7 @@ pub trait TemporalClient: Send + Sync {
     async fn list_schedules(
         &self,
         namespace: &str,
+        query: Option<&str>,
     ) -> ClientResult<Vec<Schedule>>;
 
     async fn describe_schedule(

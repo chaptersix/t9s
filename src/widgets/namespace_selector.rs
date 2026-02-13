@@ -16,9 +16,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|ns| {
             let indicator = if ns.name == app.namespace { "* " } else { "  " };
-            Row::new(vec![
-                Cell::from(format!("{}{}", indicator, ns.name)),
-            ])
+            Row::new(vec![Cell::from(format!("{}{}", indicator, ns.name))])
         })
         .collect();
 
