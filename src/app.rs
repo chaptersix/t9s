@@ -681,7 +681,7 @@ impl App {
             "open" | "goto" => {
                 if let Some(uri) = args {
                     match parse_deep_link(uri) {
-                        Ok(location) => return self.apply_location(location),
+                        Ok(location) => self.apply_location(location),
                         Err(err) => {
                             self.last_error = Some((
                                 format!("invalid uri: {}", format_uri_error(err)),
