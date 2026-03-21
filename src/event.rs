@@ -220,10 +220,20 @@ pub fn key_to_action(
         KeyCode::Tab => Some(Action::NextTab),
         KeyCode::BackTab => Some(Action::PrevTab),
 
-        KeyCode::Char('l') if matches!(view, View::Detail(KindId::WorkflowExecution)) => {
+        KeyCode::Char('l')
+            if matches!(
+                view,
+                View::Detail(KindId::WorkflowExecution) | View::Detail(KindId::ActivityExecution)
+            ) =>
+        {
             Some(Action::NextTab)
         }
-        KeyCode::Char('h') if matches!(view, View::Detail(KindId::WorkflowExecution)) => {
+        KeyCode::Char('h')
+            if matches!(
+                view,
+                View::Detail(KindId::WorkflowExecution) | View::Detail(KindId::ActivityExecution)
+            ) =>
+        {
             Some(Action::PrevTab)
         }
         KeyCode::Char('a') if matches!(view, View::Detail(KindId::WorkflowExecution)) => {

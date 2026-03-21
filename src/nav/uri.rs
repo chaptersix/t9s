@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{Location, RouteSegment, SchedulesRoute, WorkflowsRoute};
+use super::{ActivitiesRoute, Location, RouteSegment, SchedulesRoute, WorkflowsRoute};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UriError {
@@ -57,6 +57,7 @@ pub fn format_deep_link(location: &Location) -> String {
         match segment {
             RouteSegment::Workflows(route) => format_workflows_route(&mut path, route),
             RouteSegment::Schedules(route) => format_schedules_route(&mut path, route),
+            RouteSegment::Activities(route) => format_activities_route(&mut path, route),
         }
     }
 
@@ -79,8 +80,32 @@ fn parse_route(
     match segments[0].as_str() {
         "workflows" => parse_workflows_route(&segments[1..], params),
         "schedules" => parse_schedules_route(&segments[1..], params),
+        "activities" => parse_activities_route(&segments[1..], params),
         _ => Err(UriError::UnsupportedRoute),
     }
+}
+
+fn parse_activities_route(
+    segments: &[String],
+    params: &HashMap<String, String>,
+) -> Result<Vec<RouteSegment>, UriError> {
+    if segments.is_empty() {
+        return Ok(vec![RouteSegment::Activities(
+            ActivitiesRoute::Collection {
+                query: params.get("q").cloned(),
+            },
+        )]);
+    }
+
+    if segments.len() == 1 {
+        return Ok(vec![RouteSegment::Activities(ActivitiesRoute::Detail {
+            activity_id: segments[0].to_string(),
+            run_id: params.get("run_id").cloned(),
+            tab: params.get("tab").cloned(),
+        })]);
+    }
+
+    Err(UriError::UnsupportedRoute)
 }
 
 fn parse_workflows_route(
@@ -181,6 +206,18 @@ fn format_schedules_route(path: &mut String, route: &SchedulesRoute) {
     }
 }
 
+fn format_activities_route(path: &mut String, route: &ActivitiesRoute) {
+    match route {
+        ActivitiesRoute::Collection { .. } => {
+            path.push_str("/activities");
+        }
+        ActivitiesRoute::Detail { activity_id, .. } => {
+            path.push_str("/activities/");
+            path.push_str(&percent_encode(activity_id));
+        }
+    }
+}
+
 fn build_query(location: &Location) -> String {
     let mut params: Vec<(String, String)> = Vec::new();
 
@@ -202,6 +239,17 @@ fn build_query(location: &Location) -> String {
             }
             RouteSegment::Schedules(SchedulesRoute::Workflows { query: Some(q), .. }) => {
                 params.push((String::from("q"), q.clone()));
+            }
+            RouteSegment::Activities(ActivitiesRoute::Collection { query: Some(q) }) => {
+                params.push((String::from("q"), q.clone()));
+            }
+            RouteSegment::Activities(ActivitiesRoute::Detail { run_id, tab, .. }) => {
+                if let Some(run_id) = run_id {
+                    params.push((String::from("run_id"), run_id.clone()));
+                }
+                if let Some(tab) = tab {
+                    params.push((String::from("tab"), tab.clone()));
+                }
             }
             _ => {}
         }
@@ -328,6 +376,23 @@ mod tests {
             vec![RouteSegment::Schedules(SchedulesRoute::Workflows {
                 schedule_id: "nightly-reconcile".to_string(),
                 query: Some("ExecutionStatus = 'Failed'".to_string()),
+            })],
+        );
+
+        let uri = format_deep_link(&location);
+        let parsed = parse_deep_link(&uri).expect("parse deep link");
+
+        assert_eq!(parsed, location);
+    }
+
+    #[test]
+    fn roundtrip_activities_detail_with_run_id() {
+        let location = Location::new(
+            "default".to_string(),
+            vec![RouteSegment::Activities(ActivitiesRoute::Detail {
+                activity_id: "act-123".to_string(),
+                run_id: Some("run-123".to_string()),
+                tab: Some("io".to_string()),
             })],
         );
 

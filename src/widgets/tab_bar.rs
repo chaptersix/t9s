@@ -6,7 +6,7 @@ use ratatui::Frame;
 
 use crate::app::{App, ConnectionStatus};
 use crate::kinds::KindId;
-use crate::nav::{RouteSegment, SchedulesRoute, WorkflowsRoute};
+use crate::nav::{ActivitiesRoute, RouteSegment, SchedulesRoute, WorkflowsRoute};
 use crate::theme;
 
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
@@ -56,6 +56,22 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
                     left_spans.push(Span::styled(" > ", Style::default().fg(theme::TEXT_MUTED)));
                     left_spans.push(Span::styled(
                         schedule_id,
+                        Style::default().fg(theme::TEXT_DIM),
+                    ));
+                }
+            }
+            RouteSegment::Activities(route) => {
+                active_query = app.search_query_for_kind(KindId::ActivityExecution);
+                left_spans.push(Span::styled(
+                    "Activities",
+                    Style::default()
+                        .fg(theme::TEXT)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                if let ActivitiesRoute::Detail { activity_id, .. } = route {
+                    left_spans.push(Span::styled(" > ", Style::default().fg(theme::TEXT_MUTED)));
+                    left_spans.push(Span::styled(
+                        activity_id,
                         Style::default().fg(theme::TEXT_DIM),
                     ));
                 }

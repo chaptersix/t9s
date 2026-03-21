@@ -37,6 +37,16 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         ));
     }
 
+    if matches!(app.view, View::Collection(KindId::ActivityExecution)) {
+        if let Some(count) = app.activity_count {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                format!("[{} activities]", count),
+                Style::default().fg(theme::TEXT_MUTED),
+            ));
+        }
+    }
+
     let line = Line::from(spans);
     let widget = Paragraph::new(line).style(Style::default().bg(theme::BG_SURFACE));
     frame.render_widget(widget, area);
@@ -67,6 +77,8 @@ fn build_detail_hints(kind: KindId) -> Vec<(String, String)> {
     if kind == KindId::WorkflowExecution {
         hints.insert(0, hint("h/l", "tabs"));
         hints.insert(1, hint("a", "activities"));
+    } else if kind == KindId::ActivityExecution {
+        hints.insert(0, hint("h/l", "tabs"));
     }
     hints.extend(operation_hints(kind));
     if kind == KindId::Schedule {

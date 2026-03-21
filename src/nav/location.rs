@@ -21,6 +21,7 @@ impl Location {
 pub enum RouteSegment {
     Workflows(WorkflowsRoute),
     Schedules(SchedulesRoute),
+    Activities(ActivitiesRoute),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,5 +51,17 @@ pub enum SchedulesRoute {
     Workflows {
         schedule_id: String,
         query: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActivitiesRoute {
+    Collection {
+        query: Option<String>,
+    },
+    Detail {
+        activity_id: String,
+        run_id: Option<String>,
+        tab: Option<String>,
     },
 }

@@ -60,6 +60,9 @@ fn confirm_message(confirm: &OperationConfirm) -> String {
         OperationId::TriggerSchedule => "Trigger schedule",
         OperationId::DeleteSchedule => "Delete schedule",
         OperationId::PauseSchedule => "Pause schedule",
+        OperationId::CancelActivityExecution => "Cancel activity",
+        OperationId::TerminateActivityExecution => "Terminate activity",
+        OperationId::DeleteActivityExecution => "Delete activity",
     };
 
     match &confirm.target {
@@ -67,5 +70,11 @@ fn confirm_message(confirm: &OperationConfirm) -> String {
             format!("{} {}?", label, workflow_id)
         }
         OperationTarget::Schedule { schedule_id } => format!("{} {}?", label, schedule_id),
+        OperationTarget::ActivityExecution {
+            activity_id,
+            run_id,
+        } => {
+            format!("{} {} ({})?", label, activity_id, run_id)
+        }
     }
 }

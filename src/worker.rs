@@ -76,6 +76,46 @@ pub enum CliRequest {
         signal_name: String,
         input: Option<String>,
     },
+    LoadActivityExecutions {
+        namespace: String,
+        query: Option<String>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    },
+    LoadMoreActivityExecutions {
+        namespace: String,
+        query: Option<String>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    },
+    DescribeActivityExecution {
+        namespace: String,
+        activity_id: String,
+        run_id: String,
+    },
+    CountActivityExecutions {
+        namespace: String,
+        query: Option<String>,
+    },
+    RequestCancelActivityExecution {
+        namespace: String,
+        activity_id: String,
+        run_id: String,
+    },
+    TerminateActivityExecution {
+        namespace: String,
+        activity_id: String,
+        run_id: String,
+        reason: String,
+    },
+    DeleteActivityExecution {
+        namespace: String,
+        activity_id: String,
+        run_id: String,
+    },
+    CheckActivitySupport {
+        namespace: String,
+    },
 }
 
 #[derive(Clone)]
@@ -288,6 +328,121 @@ impl CliWorker {
                 {
                     Ok(tq) => Action::TaskQueueDetailLoaded(Box::new(tq)),
                     Err(e) => Action::Error(format!("failed to describe task queue: {}", e)),
+                }
+            }
+            CliRequest::LoadActivityExecutions {
+                namespace,
+                query,
+                page_size,
+                next_page_token,
+            } => {
+                match self
+                    .client
+                    .list_activity_executions(
+                        &namespace,
+                        query.as_deref(),
+                        page_size,
+                        next_page_token,
+                    )
+                    .await
+                {
+                    Ok((activities, token)) => Action::ActivityExecutionsLoaded(activities, token),
+                    Err(e) => Action::Error(format!("failed to load activities: {}", e)),
+                }
+            }
+            CliRequest::LoadMoreActivityExecutions {
+                namespace,
+                query,
+                page_size,
+                next_page_token,
+            } => {
+                match self
+                    .client
+                    .list_activity_executions(
+                        &namespace,
+                        query.as_deref(),
+                        page_size,
+                        next_page_token,
+                    )
+                    .await
+                {
+                    Ok((activities, token)) => {
+                        Action::MoreActivityExecutionsLoaded(activities, token)
+                    }
+                    Err(e) => Action::Error(format!("failed to load more activities: {}", e)),
+                }
+            }
+            CliRequest::DescribeActivityExecution {
+                namespace,
+                activity_id,
+                run_id,
+            } => {
+                match self
+                    .client
+                    .describe_activity_execution(&namespace, &activity_id, &run_id)
+                    .await
+                {
+                    Ok(detail) => Action::ActivityExecutionDetailLoaded(Box::new(detail)),
+                    Err(e) => Action::Error(format!("failed to load activity detail: {}", e)),
+                }
+            }
+            CliRequest::CountActivityExecutions { namespace, query } => {
+                match self
+                    .client
+                    .count_activity_executions(&namespace, query.as_deref())
+                    .await
+                {
+                    Ok(count) => Action::ActivityExecutionCountLoaded(count),
+                    Err(e) => Action::Error(format!("failed to count activities: {}", e)),
+                }
+            }
+            CliRequest::RequestCancelActivityExecution {
+                namespace,
+                activity_id,
+                run_id,
+            } => {
+                match self
+                    .client
+                    .request_cancel_activity_execution(&namespace, &activity_id, &run_id)
+                    .await
+                {
+                    Ok(()) => Action::Refresh,
+                    Err(e) => Action::Error(format!("failed to cancel activity: {}", e)),
+                }
+            }
+            CliRequest::TerminateActivityExecution {
+                namespace,
+                activity_id,
+                run_id,
+                reason,
+            } => {
+                match self
+                    .client
+                    .terminate_activity_execution(&namespace, &activity_id, &run_id, &reason)
+                    .await
+                {
+                    Ok(()) => Action::Refresh,
+                    Err(e) => Action::Error(format!("failed to terminate activity: {}", e)),
+                }
+            }
+            CliRequest::DeleteActivityExecution {
+                namespace,
+                activity_id,
+                run_id,
+            } => {
+                match self
+                    .client
+                    .delete_activity_execution(&namespace, &activity_id, &run_id)
+                    .await
+                {
+                    Ok(()) => Action::Refresh,
+                    Err(e) => Action::Error(format!("failed to delete activity: {}", e)),
+                }
+            }
+            CliRequest::CheckActivitySupport { namespace } => {
+                match self.client.check_activity_support(&namespace).await {
+                    Ok(supported) => Action::ActivitiesSupported(supported),
+                    Err(e) => Action::Error(format!("failed to check activity support: {}", e)),
                 }
             }
             CliRequest::SignalWorkflow {

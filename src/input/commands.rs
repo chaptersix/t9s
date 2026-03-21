@@ -16,6 +16,11 @@ pub static COMMANDS: &[CommandDef] = &[
         description: "Switch to schedules view",
     },
     CommandDef {
+        name: "activities",
+        aliases: &["act"],
+        description: "Switch to activities view",
+    },
+    CommandDef {
         name: "namespace",
         aliases: &["ns"],
         description: "Switch namespace (e.g. :ns production)",
@@ -72,6 +77,9 @@ mod tests {
 
         assert_eq!(matching_commands("sig").len(), 1);
         assert_eq!(matching_commands("sig")[0].name, "signal");
+
+        assert_eq!(matching_commands("act").len(), 1);
+        assert_eq!(matching_commands("act")[0].name, "activities");
 
         assert_eq!(matching_commands("q").len(), 1);
         assert_eq!(matching_commands("q")[0].name, "quit");

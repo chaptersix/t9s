@@ -50,6 +50,11 @@ pub enum Action {
     ScheduleDetailLoaded(Box<Schedule>),
     WorkflowCountLoaded(u64),
     TaskQueueDetailLoaded(Box<TaskQueueInfo>),
+    ActivityExecutionsLoaded(Vec<ActivityExecutionSummary>, Vec<u8>),
+    MoreActivityExecutionsLoaded(Vec<ActivityExecutionSummary>, Vec<u8>),
+    ActivityExecutionDetailLoaded(Box<ActivityExecutionDetail>),
+    ActivityExecutionCountLoaded(u64),
+    ActivitiesSupported(bool),
 
     // App control
     Refresh,
@@ -64,6 +69,7 @@ pub enum Action {
 pub enum ViewType {
     Workflows,
     Schedules,
+    Activities,
     TaskQueues,
 }
 
@@ -72,6 +78,7 @@ impl ViewType {
         match self {
             Self::Workflows => "Workflows",
             Self::Schedules => "Schedules",
+            Self::Activities => "Activities",
             Self::TaskQueues => "Task Queues",
         }
     }

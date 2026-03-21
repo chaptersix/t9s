@@ -7,7 +7,8 @@ use crate::action::{Action, ViewType};
 use crate::domain::*;
 use crate::kinds::{detail_tab_count, operation_effect_spec, operation_spec, KindId, OperationId};
 use crate::nav::{
-    parse_deep_link, Location, RouteSegment, SchedulesRoute, UriError, WorkflowsRoute,
+    parse_deep_link, ActivitiesRoute, Location, RouteSegment, SchedulesRoute, UriError,
+    WorkflowsRoute,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,10 @@ pub enum OperationTarget {
     },
     Schedule {
         schedule_id: String,
+    },
+    ActivityExecution {
+        activity_id: String,
+        run_id: String,
     },
 }
 
@@ -100,6 +105,33 @@ pub enum Effect {
     DeleteSchedule(String),
     LoadMoreWorkflows,
     LoadTaskQueueDetail(String),
+    LoadActivityExecutions {
+        namespace: String,
+        query: Option<String>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    },
+    LoadMoreActivityExecutions {
+        namespace: String,
+        query: Option<String>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    },
+    LoadActivityExecutionDetail {
+        namespace: String,
+        activity_id: String,
+        run_id: String,
+    },
+    CountActivityExecutions {
+        namespace: String,
+        query: Option<String>,
+    },
+    RequestCancelActivityExecution(String, String),
+    TerminateActivityExecution(String, String),
+    DeleteActivityExecution(String, String),
+    CheckActivitySupport {
+        namespace: String,
+    },
     SignalWorkflow(String, Option<String>, String, Option<String>),
     Quit,
 }
@@ -127,6 +159,16 @@ pub struct App {
     pub schedules: LoadState<Vec<Schedule>>,
     pub selected_schedule: Option<Schedule>,
     pub schedule_table_state: TableState,
+
+    // Standalone activity data
+    pub activity_executions: LoadState<Vec<ActivityExecutionSummary>>,
+    pub activity_execution_detail: LoadState<ActivityExecutionDetail>,
+    pub activity_execution_table_state: TableState,
+    pub activity_execution_task_queue: LoadState<TaskQueueInfo>,
+    pub activity_next_page_token: Vec<u8>,
+    pub activity_count: Option<u64>,
+    pub activities_supported: bool,
+    pub activity_detail_tab: usize,
 
     // Task queue data (loaded in workflow detail)
     pub task_queue_detail: LoadState<TaskQueueInfo>,
@@ -156,6 +198,7 @@ pub struct App {
     pub last_error: Option<(String, Instant)>,
     pub active_tab: ViewType,
     pub page_size: i32,
+    pub activity_page_size: i32,
     pub next_page_token: Vec<u8>,
 }
 
@@ -181,6 +224,15 @@ impl App {
             selected_schedule: None,
             schedule_table_state: TableState::default(),
 
+            activity_executions: LoadState::NotLoaded,
+            activity_execution_detail: LoadState::NotLoaded,
+            activity_execution_table_state: TableState::default(),
+            activity_execution_task_queue: LoadState::NotLoaded,
+            activity_next_page_token: vec![],
+            activity_count: None,
+            activities_supported: false,
+            activity_detail_tab: 0,
+
             task_queue_detail: LoadState::NotLoaded,
 
             namespace_selector_state: TableState::default(),
@@ -201,6 +253,7 @@ impl App {
             last_error: None,
             active_tab: ViewType::Workflows,
             page_size: 50,
+            activity_page_size: 20,
             next_page_token: vec![],
         }
     }
@@ -284,6 +337,24 @@ impl App {
                         self.view = View::Collection(KindId::Schedule);
                         vec![Effect::LoadSchedules]
                     }
+                    ViewType::Activities => {
+                        if !self.activities_supported {
+                            return vec![];
+                        }
+                        self.view = View::Collection(KindId::ActivityExecution);
+                        vec![
+                            Effect::LoadActivityExecutions {
+                                namespace: self.namespace.clone(),
+                                query: self.search_query_for_kind(KindId::ActivityExecution),
+                                page_size: self.activity_page_size,
+                                next_page_token: vec![],
+                            },
+                            Effect::CountActivityExecutions {
+                                namespace: self.namespace.clone(),
+                                query: self.search_query_for_kind(KindId::ActivityExecution),
+                            },
+                        ]
+                    }
                     ViewType::TaskQueues => {
                         // No standalone task queue view; TQ info is in workflow detail
                         vec![]
@@ -344,6 +415,18 @@ impl App {
                         vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
                     }
                     KindId::Schedule => vec![Effect::LoadSchedules],
+                    KindId::ActivityExecution => vec![
+                        Effect::LoadActivityExecutions {
+                            namespace: self.namespace.clone(),
+                            query: self.search_query_for_kind(KindId::ActivityExecution),
+                            page_size: self.activity_page_size,
+                            next_page_token: vec![],
+                        },
+                        Effect::CountActivityExecutions {
+                            namespace: self.namespace.clone(),
+                            query: self.search_query_for_kind(KindId::ActivityExecution),
+                        },
+                    ],
                 }
             }
             Action::ToggleHelp => {
@@ -359,12 +442,22 @@ impl App {
                 self.overlay = Overlay::None;
                 self.workflows = LoadState::NotLoaded;
                 self.schedules = LoadState::NotLoaded;
+                self.activity_executions = LoadState::NotLoaded;
+                self.activity_execution_detail = LoadState::NotLoaded;
+                self.activity_execution_task_queue = LoadState::NotLoaded;
                 self.workflow_table_state = TableState::default();
                 self.schedule_table_state = TableState::default();
+                self.activity_execution_table_state = TableState::default();
                 self.selected_workflow = None;
                 self.selected_schedule = None;
+                self.activity_next_page_token = vec![];
+                self.activity_count = None;
+                self.activities_supported = false;
                 self.search_queries.clear();
-                match self.current_kind_id() {
+                let mut effects = vec![Effect::CheckActivitySupport {
+                    namespace: self.namespace.clone(),
+                }];
+                effects.extend(match self.current_kind_id() {
                     KindId::WorkflowExecution => {
                         self.view = View::Collection(KindId::WorkflowExecution);
                         vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
@@ -373,7 +466,23 @@ impl App {
                         self.view = View::Collection(KindId::Schedule);
                         vec![Effect::LoadSchedules]
                     }
-                }
+                    KindId::ActivityExecution => {
+                        self.view = View::Collection(KindId::ActivityExecution);
+                        vec![
+                            Effect::LoadActivityExecutions {
+                                namespace: self.namespace.clone(),
+                                query: self.search_query_for_kind(KindId::ActivityExecution),
+                                page_size: self.activity_page_size,
+                                next_page_token: vec![],
+                            },
+                            Effect::CountActivityExecutions {
+                                namespace: self.namespace.clone(),
+                                query: self.search_query_for_kind(KindId::ActivityExecution),
+                            },
+                        ]
+                    }
+                });
+                effects
             }
             Action::NextTab => {
                 if self.view == View::Detail(KindId::WorkflowExecution) {
@@ -381,6 +490,12 @@ impl App {
                     self.workflow_detail_tab = (self.workflow_detail_tab + 1) % tab_count;
                     self.detail_scroll = 0;
                     return self.load_workflow_tab_data();
+                }
+                if self.view == View::Detail(KindId::ActivityExecution) {
+                    let tab_count = detail_tab_count(KindId::ActivityExecution).max(1);
+                    self.activity_detail_tab = (self.activity_detail_tab + 1) % tab_count;
+                    self.detail_scroll = 0;
+                    return self.load_activity_tab_data();
                 }
                 vec![]
             }
@@ -394,6 +509,16 @@ impl App {
                     };
                     self.detail_scroll = 0;
                     return self.load_workflow_tab_data();
+                }
+                if self.view == View::Detail(KindId::ActivityExecution) {
+                    let tab_count = detail_tab_count(KindId::ActivityExecution).max(1);
+                    self.activity_detail_tab = if self.activity_detail_tab == 0 {
+                        tab_count - 1
+                    } else {
+                        self.activity_detail_tab - 1
+                    };
+                    self.detail_scroll = 0;
+                    return self.load_activity_tab_data();
                 }
                 vec![]
             }
@@ -537,7 +662,50 @@ impl App {
                 vec![]
             }
             Action::TaskQueueDetailLoaded(tq) => {
-                self.task_queue_detail = LoadState::Loaded(*tq);
+                if self.view == View::Detail(KindId::ActivityExecution) {
+                    self.activity_execution_task_queue = LoadState::Loaded(*tq);
+                } else {
+                    self.task_queue_detail = LoadState::Loaded(*tq);
+                }
+                vec![]
+            }
+            Action::ActivityExecutionsLoaded(activities, next_page_token) => {
+                self.activity_executions = LoadState::Loaded(activities);
+                self.activity_next_page_token = next_page_token;
+                self.loading_more = false;
+                self.connection_status = ConnectionStatus::Connected;
+                self.reset_backoff();
+                self.last_refresh = Some(Instant::now());
+                if self.activity_execution_table_state.selected().is_none() {
+                    self.activity_execution_table_state.select_first();
+                }
+                vec![]
+            }
+            Action::MoreActivityExecutionsLoaded(activities, next_page_token) => {
+                if let LoadState::Loaded(ref mut existing) = self.activity_executions {
+                    existing.extend(activities);
+                }
+                self.activity_next_page_token = next_page_token;
+                self.loading_more = false;
+                self.connection_status = ConnectionStatus::Connected;
+                self.reset_backoff();
+                vec![]
+            }
+            Action::ActivityExecutionDetailLoaded(detail) => {
+                self.activity_execution_detail = LoadState::Loaded(*detail);
+                self.load_activity_tab_data()
+            }
+            Action::ActivityExecutionCountLoaded(count) => {
+                self.activity_count = Some(count);
+                vec![]
+            }
+            Action::ActivitiesSupported(supported) => {
+                self.activities_supported = supported;
+                if !supported && self.current_kind_id() == KindId::ActivityExecution {
+                    self.active_tab = ViewType::Workflows;
+                    self.view = View::Collection(KindId::WorkflowExecution);
+                    return vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount];
+                }
                 vec![]
             }
 
@@ -617,6 +785,25 @@ impl App {
                 }
                 vec![]
             }
+            View::Collection(KindId::ActivityExecution) => {
+                if let Some(activities) = self.activity_executions.data() {
+                    if let Some(idx) = self.activity_execution_table_state.selected() {
+                        if let Some(activity) = activities.get(idx) {
+                            self.view = View::Detail(KindId::ActivityExecution);
+                            self.activity_detail_tab = 0;
+                            self.activity_execution_detail = LoadState::Loading;
+                            self.activity_execution_task_queue = LoadState::NotLoaded;
+                            self.detail_scroll = 0;
+                            return vec![Effect::LoadActivityExecutionDetail {
+                                namespace: self.namespace.clone(),
+                                activity_id: activity.activity_id.clone(),
+                                run_id: activity.run_id.clone(),
+                            }];
+                        }
+                    }
+                }
+                vec![]
+            }
             _ => vec![],
         }
     }
@@ -632,6 +819,12 @@ impl App {
             View::Detail(KindId::Schedule) => {
                 self.view = View::Collection(KindId::Schedule);
                 self.selected_schedule = None;
+                vec![]
+            }
+            View::Detail(KindId::ActivityExecution) => {
+                self.view = View::Collection(KindId::ActivityExecution);
+                self.activity_execution_detail = LoadState::NotLoaded;
+                self.activity_execution_task_queue = LoadState::NotLoaded;
                 vec![]
             }
             _ => vec![],
@@ -653,6 +846,29 @@ impl App {
                 self.active_tab = ViewType::Schedules;
                 self.view = View::Collection(KindId::Schedule);
                 vec![Effect::LoadSchedules]
+            }
+            "activities" | "act" => {
+                if !self.activities_supported {
+                    self.last_error = Some((
+                        "activities not supported by this server".to_string(),
+                        Instant::now(),
+                    ));
+                    return vec![];
+                }
+                self.active_tab = ViewType::Activities;
+                self.view = View::Collection(KindId::ActivityExecution);
+                vec![
+                    Effect::LoadActivityExecutions {
+                        namespace: self.namespace.clone(),
+                        query: self.search_query_for_kind(KindId::ActivityExecution),
+                        page_size: self.activity_page_size,
+                        next_page_token: vec![],
+                    },
+                    Effect::CountActivityExecutions {
+                        namespace: self.namespace.clone(),
+                        query: self.search_query_for_kind(KindId::ActivityExecution),
+                    },
+                ]
             }
             "signal" | "sig" => {
                 if let Some(signal_args) = args {
@@ -703,9 +919,15 @@ impl App {
                     self.namespace = ns_name.to_string();
                     self.workflows = LoadState::NotLoaded;
                     self.schedules = LoadState::NotLoaded;
+                    self.activity_executions = LoadState::NotLoaded;
                     self.workflow_table_state = TableState::default();
                     self.schedule_table_state = TableState::default();
-                    self.refresh_current_view()
+                    self.activity_execution_table_state = TableState::default();
+                    let mut effects = vec![Effect::CheckActivitySupport {
+                        namespace: self.namespace.clone(),
+                    }];
+                    effects.extend(self.refresh_current_view());
+                    effects
                 } else {
                     self.overlay = Overlay::NamespaceSelector;
                     vec![Effect::LoadNamespaces]
@@ -749,6 +971,29 @@ impl App {
                     vec![]
                 }
             }
+            View::Collection(KindId::ActivityExecution) => vec![
+                Effect::LoadActivityExecutions {
+                    namespace: self.namespace.clone(),
+                    query: self.search_query_for_kind(KindId::ActivityExecution),
+                    page_size: self.activity_page_size,
+                    next_page_token: vec![],
+                },
+                Effect::CountActivityExecutions {
+                    namespace: self.namespace.clone(),
+                    query: self.search_query_for_kind(KindId::ActivityExecution),
+                },
+            ],
+            View::Detail(KindId::ActivityExecution) => {
+                if let Some(activity) = self.selected_activity_summary() {
+                    vec![Effect::LoadActivityExecutionDetail {
+                        namespace: self.namespace.clone(),
+                        activity_id: activity.activity_id.clone(),
+                        run_id: activity.run_id.clone(),
+                    }]
+                } else {
+                    vec![]
+                }
+            }
         }
     }
 
@@ -778,6 +1023,21 @@ impl App {
         }
     }
 
+    fn selected_activity_summary(&self) -> Option<&ActivityExecutionSummary> {
+        match self.view {
+            View::Collection(KindId::ActivityExecution) => {
+                let activities = self.activity_executions.data()?;
+                let idx = self.activity_execution_table_state.selected()?;
+                activities.get(idx)
+            }
+            View::Detail(KindId::ActivityExecution) => match &self.activity_execution_detail {
+                LoadState::Loaded(detail) => Some(&detail.summary),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn navigate_up(&mut self) {
         match self.view {
             View::Collection(KindId::WorkflowExecution) => {
@@ -785,6 +1045,9 @@ impl App {
             }
             View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_previous();
+            }
+            View::Collection(KindId::ActivityExecution) => {
+                self.activity_execution_table_state.select_previous();
             }
             _ => {}
         }
@@ -798,6 +1061,11 @@ impl App {
             View::Collection(KindId::Schedule) => {
                 self.schedules.data().map(|s| s.len()).unwrap_or(0)
             }
+            View::Collection(KindId::ActivityExecution) => self
+                .activity_executions
+                .data()
+                .map(|a| a.len())
+                .unwrap_or(0),
             _ => return,
         };
 
@@ -812,6 +1080,9 @@ impl App {
             View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_next();
             }
+            View::Collection(KindId::ActivityExecution) => {
+                self.activity_execution_table_state.select_next();
+            }
             _ => {}
         }
     }
@@ -825,6 +1096,9 @@ impl App {
             View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_first();
             }
+            View::Collection(KindId::ActivityExecution) => {
+                self.activity_execution_table_state.select_first();
+            }
             _ => {}
         }
     }
@@ -836,6 +1110,9 @@ impl App {
             }
             View::Collection(KindId::Schedule) => {
                 self.schedule_table_state.select_last();
+            }
+            View::Collection(KindId::ActivityExecution) => {
+                self.activity_execution_table_state.select_last();
             }
             _ => {}
         }
@@ -865,6 +1142,22 @@ impl App {
         } else {
             vec![]
         }
+    }
+
+    fn load_activity_tab_data(&mut self) -> Vec<Effect> {
+        let task_queue = match self.selected_activity_summary() {
+            Some(summary) => summary,
+            None => return vec![],
+        }
+        .task_queue
+        .clone();
+
+        if self.activity_detail_tab == 2 {
+            self.activity_execution_task_queue = LoadState::Loading;
+            return vec![Effect::LoadTaskQueueDetail(task_queue)];
+        }
+
+        vec![]
     }
 
     pub fn location(&self) -> Location {
@@ -903,6 +1196,24 @@ impl App {
                     })]
                 }
             }
+            View::Collection(KindId::ActivityExecution) => {
+                vec![RouteSegment::Activities(ActivitiesRoute::Collection {
+                    query: self.search_queries.get(&KindId::ActivityExecution).cloned(),
+                })]
+            }
+            View::Detail(KindId::ActivityExecution) => {
+                if let Some(detail) = self.selected_activity_summary() {
+                    vec![RouteSegment::Activities(ActivitiesRoute::Detail {
+                        activity_id: detail.activity_id.clone(),
+                        run_id: Some(detail.run_id.clone()),
+                        tab: Some(activity_tab_to_param(self.activity_detail_tab).to_string()),
+                    })]
+                } else {
+                    vec![RouteSegment::Activities(ActivitiesRoute::Collection {
+                        query: self.search_queries.get(&KindId::ActivityExecution).cloned(),
+                    })]
+                }
+            }
         };
 
         Location::new(self.namespace.clone(), segments)
@@ -915,15 +1226,23 @@ impl App {
             self.namespace = namespace;
             self.workflows = LoadState::NotLoaded;
             self.schedules = LoadState::NotLoaded;
+            self.activity_executions = LoadState::NotLoaded;
+            self.activity_execution_detail = LoadState::NotLoaded;
+            self.activity_execution_task_queue = LoadState::NotLoaded;
             self.workflow_history = LoadState::NotLoaded;
             self.task_queue_detail = LoadState::NotLoaded;
             self.workflow_table_state = TableState::default();
             self.schedule_table_state = TableState::default();
+            self.activity_execution_table_state = TableState::default();
             self.selected_workflow = None;
             self.selected_schedule = None;
             self.workflow_detail_tab = 0;
+            self.activity_detail_tab = 0;
             self.detail_scroll = 0;
             self.next_page_token = vec![];
+            self.activity_next_page_token = vec![];
+            self.activity_count = None;
+            self.activities_supported = false;
             self.loading_more = false;
             self.search_queries.clear();
         }
@@ -933,7 +1252,15 @@ impl App {
             return vec![];
         };
 
-        match segment {
+        let mut prefix_effects = if namespace_changed {
+            vec![Effect::CheckActivitySupport {
+                namespace: self.namespace.clone(),
+            }]
+        } else {
+            vec![]
+        };
+
+        let mut effects = match segment {
             RouteSegment::Workflows(route) => match route {
                 WorkflowsRoute::Collection { query } => {
                     self.set_kind_query(KindId::WorkflowExecution, query.clone());
@@ -992,7 +1319,56 @@ impl App {
                     vec![Effect::LoadWorkflows, Effect::LoadWorkflowCount]
                 }
             },
-        }
+            RouteSegment::Activities(route) => {
+                if !self.activities_supported {
+                    self.last_error = Some((
+                        "activities not supported by this server".to_string(),
+                        Instant::now(),
+                    ));
+                    return vec![];
+                }
+                match route {
+                ActivitiesRoute::Collection { query } => {
+                    self.set_kind_query(KindId::ActivityExecution, query.clone());
+                    self.active_tab = ViewType::Activities;
+                    self.view = View::Collection(KindId::ActivityExecution);
+                    vec![
+                        Effect::LoadActivityExecutions {
+                            namespace: self.namespace.clone(),
+                            query: self.search_query_for_kind(KindId::ActivityExecution),
+                            page_size: self.activity_page_size,
+                            next_page_token: vec![],
+                        },
+                        Effect::CountActivityExecutions {
+                            namespace: self.namespace.clone(),
+                            query: self.search_query_for_kind(KindId::ActivityExecution),
+                        },
+                    ]
+                }
+                ActivitiesRoute::Detail {
+                    activity_id,
+                    run_id,
+                    tab,
+                } => {
+                    self.active_tab = ViewType::Activities;
+                    self.view = View::Detail(KindId::ActivityExecution);
+                    self.activity_detail_tab =
+                        tab.as_deref().map(activity_tab_from_param).unwrap_or(0);
+                    self.detail_scroll = 0;
+                    self.activity_execution_detail = LoadState::Loading;
+                    self.activity_execution_task_queue = LoadState::NotLoaded;
+                    vec![Effect::LoadActivityExecutionDetail {
+                        namespace: self.namespace.clone(),
+                        activity_id: activity_id.clone(),
+                        run_id: run_id.clone().unwrap_or_default(),
+                    }]
+                }
+            }
+            },
+        };
+
+        prefix_effects.append(&mut effects);
+        prefix_effects
     }
 
     pub fn search_query_for_kind(&self, kind: KindId) -> Option<String> {
@@ -1066,6 +1442,26 @@ impl App {
                     (effect_spec.to_effects)(&target, self)
                 }
             }
+            KindId::ActivityExecution => {
+                let Some(activity) = self.selected_activity_summary() else {
+                    self.last_error = Some(("no activity selected".to_string(), Instant::now()));
+                    return vec![];
+                };
+                let target = OperationTarget::ActivityExecution {
+                    activity_id: activity.activity_id.clone(),
+                    run_id: activity.run_id.clone(),
+                };
+                if spec.requires_confirm {
+                    self.overlay = Overlay::Confirm(ConfirmAction::Operation(OperationConfirm {
+                        kind,
+                        op: op_id,
+                        target,
+                    }));
+                    vec![]
+                } else {
+                    (effect_spec.to_effects)(&target, self)
+                }
+            }
         }
     }
 
@@ -1081,21 +1477,42 @@ impl App {
     }
 
     fn maybe_load_more(&mut self) -> Vec<Effect> {
-        if self.view != View::Collection(KindId::WorkflowExecution)
-            || self.loading_more
-            || self.next_page_token.is_empty()
-        {
-            return vec![];
-        }
-        if let Some(workflows) = self.workflows.data() {
-            if let Some(selected) = self.workflow_table_state.selected() {
-                if selected + 5 >= workflows.len() {
-                    self.loading_more = true;
-                    return vec![Effect::LoadMoreWorkflows];
+        match self.view {
+            View::Collection(KindId::WorkflowExecution) => {
+                if self.loading_more || self.next_page_token.is_empty() {
+                    return vec![];
                 }
+                if let Some(workflows) = self.workflows.data() {
+                    if let Some(selected) = self.workflow_table_state.selected() {
+                        if selected + 5 >= workflows.len() {
+                            self.loading_more = true;
+                            return vec![Effect::LoadMoreWorkflows];
+                        }
+                    }
+                }
+                vec![]
             }
+            View::Collection(KindId::ActivityExecution) => {
+                if self.loading_more || self.activity_next_page_token.is_empty() {
+                    return vec![];
+                }
+                if let Some(activities) = self.activity_executions.data() {
+                    if let Some(selected) = self.activity_execution_table_state.selected() {
+                        if selected + 5 >= activities.len() {
+                            self.loading_more = true;
+                            return vec![Effect::LoadMoreActivityExecutions {
+                                namespace: self.namespace.clone(),
+                                query: self.search_query_for_kind(KindId::ActivityExecution),
+                                page_size: self.activity_page_size,
+                                next_page_token: self.activity_next_page_token.clone(),
+                            }];
+                        }
+                    }
+                }
+                vec![]
+            }
+            _ => vec![],
         }
-        vec![]
     }
 
     fn page_height(&self) -> usize {
@@ -1111,6 +1528,24 @@ fn workflow_tab_from_param(tab: &str) -> usize {
         "pending" | "pending-activities" | "pending_activities" | "activities" => 3,
         "task-queue" | "task_queue" | "taskqueue" => 4,
         _ => 0,
+    }
+}
+
+fn activity_tab_from_param(tab: &str) -> usize {
+    match tab.to_lowercase().as_str() {
+        "summary" => 0,
+        "io" | "input" | "output" | "input-output" | "input_output" => 1,
+        "task-queue" | "task_queue" | "taskqueue" => 2,
+        _ => 0,
+    }
+}
+
+fn activity_tab_to_param(tab: usize) -> &'static str {
+    match tab {
+        0 => "summary",
+        1 => "io",
+        2 => "task-queue",
+        _ => "summary",
     }
 }
 

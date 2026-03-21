@@ -86,6 +86,9 @@ async fn run_tui(cli: Cli) -> Result<()> {
         namespace: cli.namespace.clone(),
         query: None,
     });
+    cli_handle.send(CliRequest::CheckActivitySupport {
+        namespace: cli.namespace.clone(),
+    });
 
     // Set up terminal
     let mut terminal = t9s::tui::init()?;
@@ -243,6 +246,19 @@ fn render(app: &mut App, frame: &mut ratatui::Frame) {
                 (spec.render)(app, frame, content_area);
             }
         }
+        View::Collection(t9s::kinds::KindId::ActivityExecution) => {
+            widgets::collection::render_kind_collection(
+                app,
+                frame,
+                content_area,
+                t9s::kinds::KindId::ActivityExecution,
+            )
+        }
+        View::Detail(t9s::kinds::KindId::ActivityExecution) => {
+            if let Some(spec) = detail_spec(t9s::kinds::KindId::ActivityExecution) {
+                (spec.render)(app, frame, content_area);
+            }
+        }
     }
 
     // Footer
@@ -361,6 +377,71 @@ fn handle_effects(effects: Vec<Effect>, cli_handle: &t9s::worker::CliHandle, app
                     namespace: app.namespace.clone(),
                     task_queue,
                 });
+            }
+            Effect::LoadActivityExecutions {
+                namespace,
+                query,
+                page_size,
+                next_page_token,
+            } => {
+                cli_handle.send(CliRequest::LoadActivityExecutions {
+                    namespace,
+                    query,
+                    page_size,
+                    next_page_token,
+                });
+            }
+            Effect::LoadMoreActivityExecutions {
+                namespace,
+                query,
+                page_size,
+                next_page_token,
+            } => {
+                cli_handle.send(CliRequest::LoadMoreActivityExecutions {
+                    namespace,
+                    query,
+                    page_size,
+                    next_page_token,
+                });
+            }
+            Effect::LoadActivityExecutionDetail {
+                namespace,
+                activity_id,
+                run_id,
+            } => {
+                cli_handle.send(CliRequest::DescribeActivityExecution {
+                    namespace,
+                    activity_id,
+                    run_id,
+                });
+            }
+            Effect::CountActivityExecutions { namespace, query } => {
+                cli_handle.send(CliRequest::CountActivityExecutions { namespace, query });
+            }
+            Effect::RequestCancelActivityExecution(activity_id, run_id) => {
+                cli_handle.send(CliRequest::RequestCancelActivityExecution {
+                    namespace: app.namespace.clone(),
+                    activity_id,
+                    run_id,
+                });
+            }
+            Effect::TerminateActivityExecution(activity_id, run_id) => {
+                cli_handle.send(CliRequest::TerminateActivityExecution {
+                    namespace: app.namespace.clone(),
+                    activity_id,
+                    run_id,
+                    reason: "terminated via t9s".to_string(),
+                });
+            }
+            Effect::DeleteActivityExecution(activity_id, run_id) => {
+                cli_handle.send(CliRequest::DeleteActivityExecution {
+                    namespace: app.namespace.clone(),
+                    activity_id,
+                    run_id,
+                });
+            }
+            Effect::CheckActivitySupport { namespace } => {
+                cli_handle.send(CliRequest::CheckActivitySupport { namespace });
             }
             Effect::SignalWorkflow(wf_id, run_id, signal_name, input) => {
                 cli_handle.send(CliRequest::SignalWorkflow {

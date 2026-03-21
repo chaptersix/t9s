@@ -639,6 +639,239 @@ impl TemporalClient for GrpcTemporalClient {
             pollers,
         })
     }
+
+    async fn list_activity_executions(
+        &self,
+        namespace: &str,
+        query: Option<&str>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    ) -> ClientResult<(Vec<ActivityExecutionSummary>, Vec<u8>)> {
+        let inner = proto::ListActivityExecutionsRequest {
+            namespace: namespace.to_string(),
+            page_size,
+            next_page_token,
+            query: query.unwrap_or("").to_string(),
+        };
+
+        let response = self
+            .client
+            .clone()
+            .list_activity_executions(self.make_request(inner))
+            .await
+            .map_err(grpc_error)?;
+
+        let resp = response.into_inner();
+        let activities = resp
+            .executions
+            .into_iter()
+            .map(activity_list_info_to_summary)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((activities, resp.next_page_token))
+    }
+
+    async fn describe_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+    ) -> ClientResult<ActivityExecutionDetail> {
+        let inner = proto::DescribeActivityExecutionRequest {
+            namespace: namespace.to_string(),
+            activity_id: activity_id.to_string(),
+            run_id: run_id.to_string(),
+            include_input: true,
+            include_outcome: true,
+            long_poll_token: vec![],
+        };
+
+        let response = self
+            .client
+            .clone()
+            .describe_activity_execution(self.make_request(inner))
+            .await
+            .map_err(grpc_error)?;
+
+        let resp = response.into_inner();
+        let info = resp
+            .info
+            .ok_or_else(|| ClientError::ParseError("missing activity execution info".into()))?;
+
+        let summary = ActivityExecutionSummary {
+            activity_id: info.activity_id.clone(),
+            run_id: if info.run_id.is_empty() {
+                resp.run_id.clone()
+            } else {
+                info.run_id.clone()
+            },
+            activity_type: info
+                .activity_type
+                .as_ref()
+                .map(|t| t.name.clone())
+                .unwrap_or_else(|| "Unknown".to_string()),
+            status: proto_activity_status_to_domain(info.status),
+            schedule_time: info.schedule_time.as_ref().map(timestamp_to_datetime),
+            close_time: info.close_time.as_ref().map(timestamp_to_datetime),
+            task_queue: info.task_queue.clone(),
+        };
+
+        let retry_state = info
+            .last_failure
+            .as_ref()
+            .and_then(failure_retry_state)
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let (output, failure) = match resp.outcome.and_then(|o| o.value) {
+            Some(
+                proto::temporal::api::activity::v1::activity_execution_outcome::Value::Result(
+                    payloads,
+                ),
+            ) => (Some(decode_payloads(&Some(payloads))), None),
+            Some(
+                proto::temporal::api::activity::v1::activity_execution_outcome::Value::Failure(
+                    failure,
+                ),
+            ) => (None, Some(decode_failure(&Some(failure)))),
+            None => (None, None),
+        };
+
+        Ok(ActivityExecutionDetail {
+            summary,
+            attempt: info.attempt,
+            retry_state,
+            last_heartbeat_time: info.last_heartbeat_time.as_ref().map(timestamp_to_datetime),
+            last_started_time: info.last_started_time.as_ref().map(timestamp_to_datetime),
+            last_failure_message: info.last_failure.as_ref().map(|f| f.message.clone()),
+            schedule_to_close_timeout: info.schedule_to_close_timeout.as_ref().map(duration_to_std),
+            start_to_close_timeout: info.start_to_close_timeout.as_ref().map(duration_to_std),
+            heartbeat_timeout: info.heartbeat_timeout.as_ref().map(duration_to_std),
+            input: {
+                let decoded = decode_payloads(&resp.input);
+                if decoded.is_null() {
+                    None
+                } else {
+                    Some(decoded)
+                }
+            },
+            output,
+            failure,
+            deployment_info: info
+                .last_deployment_version
+                .as_ref()
+                .map(deployment_version_string),
+        })
+    }
+
+    async fn count_activity_executions(
+        &self,
+        namespace: &str,
+        query: Option<&str>,
+    ) -> ClientResult<u64> {
+        let inner = proto::CountActivityExecutionsRequest {
+            namespace: namespace.to_string(),
+            query: query.unwrap_or("").to_string(),
+        };
+
+        let response = self
+            .client
+            .clone()
+            .count_activity_executions(self.make_request(inner))
+            .await
+            .map_err(grpc_error)?;
+
+        Ok(response.into_inner().count as u64)
+    }
+
+    async fn request_cancel_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+    ) -> ClientResult<()> {
+        let inner = proto::RequestCancelActivityExecutionRequest {
+            namespace: namespace.to_string(),
+            activity_id: activity_id.to_string(),
+            run_id: run_id.to_string(),
+            identity: "t9s".to_string(),
+            request_id: uuid::Uuid::new_v4().to_string(),
+            reason: String::new(),
+        };
+
+        self.client
+            .clone()
+            .request_cancel_activity_execution(self.make_request(inner))
+            .await
+            .map_err(grpc_error)?;
+
+        Ok(())
+    }
+
+    async fn terminate_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+        reason: &str,
+    ) -> ClientResult<()> {
+        let inner = proto::TerminateActivityExecutionRequest {
+            namespace: namespace.to_string(),
+            activity_id: activity_id.to_string(),
+            run_id: run_id.to_string(),
+            identity: "t9s".to_string(),
+            request_id: uuid::Uuid::new_v4().to_string(),
+            reason: reason.to_string(),
+        };
+
+        self.client
+            .clone()
+            .terminate_activity_execution(self.make_request(inner))
+            .await
+            .map_err(grpc_error)?;
+
+        Ok(())
+    }
+
+    async fn delete_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+    ) -> ClientResult<()> {
+        let inner = proto::DeleteActivityExecutionRequest {
+            namespace: namespace.to_string(),
+            activity_id: activity_id.to_string(),
+            run_id: run_id.to_string(),
+        };
+
+        self.client
+            .clone()
+            .delete_activity_execution(self.make_request(inner))
+            .await
+            .map_err(grpc_error)?;
+
+        Ok(())
+    }
+
+    async fn check_activity_support(&self, namespace: &str) -> ClientResult<bool> {
+        let inner = proto::ListActivityExecutionsRequest {
+            namespace: namespace.to_string(),
+            page_size: 1,
+            next_page_token: vec![],
+            query: String::new(),
+        };
+
+        match self
+            .client
+            .clone()
+            .list_activity_executions(self.make_request(inner))
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(status) if status.code() == tonic::Code::Unimplemented => Ok(false),
+            Err(status) => Err(grpc_error(status)),
+        }
+    }
 }
 
 fn grpc_error(status: Status) -> ClientError {
@@ -684,6 +917,24 @@ fn workflow_info_to_summary(
     })
 }
 
+fn activity_list_info_to_summary(
+    info: proto::temporal::api::activity::v1::ActivityExecutionListInfo,
+) -> ClientResult<ActivityExecutionSummary> {
+    Ok(ActivityExecutionSummary {
+        activity_id: info.activity_id.clone(),
+        run_id: info.run_id.clone(),
+        activity_type: info
+            .activity_type
+            .as_ref()
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| "Unknown".to_string()),
+        status: proto_activity_status_to_domain(info.status),
+        schedule_time: info.schedule_time.as_ref().map(timestamp_to_datetime),
+        close_time: info.close_time.as_ref().map(timestamp_to_datetime),
+        task_queue: info.task_queue,
+    })
+}
+
 fn timestamp_to_datetime(ts: &prost_types::Timestamp) -> DateTime<Utc> {
     Utc.timestamp_opt(ts.seconds, ts.nanos as u32)
         .single()
@@ -703,6 +954,58 @@ fn proto_status_to_domain(status: i32) -> WorkflowStatus {
         Ok(WorkflowExecutionStatus::TimedOut) => WorkflowStatus::TimedOut,
         _ => WorkflowStatus::Running,
     }
+}
+
+fn proto_activity_status_to_domain(status: i32) -> ActivityExecutionStatus {
+    use crate::proto::temporal::api::enums::v1::ActivityExecutionStatus as ProtoStatus;
+
+    match ProtoStatus::try_from(status) {
+        Ok(ProtoStatus::Completed) => ActivityExecutionStatus::Completed,
+        Ok(ProtoStatus::Failed) => ActivityExecutionStatus::Failed,
+        Ok(ProtoStatus::Canceled) => ActivityExecutionStatus::Canceled,
+        Ok(ProtoStatus::Terminated) => ActivityExecutionStatus::Terminated,
+        Ok(ProtoStatus::TimedOut) => ActivityExecutionStatus::TimedOut,
+        _ => ActivityExecutionStatus::Running,
+    }
+}
+
+fn duration_to_std(d: &prost_types::Duration) -> std::time::Duration {
+    if d.seconds < 0 {
+        return std::time::Duration::from_secs(0);
+    }
+    std::time::Duration::new(d.seconds as u64, d.nanos.max(0) as u32)
+}
+
+fn deployment_version_string(
+    version: &proto::temporal::api::deployment::v1::WorkerDeploymentVersion,
+) -> String {
+    if version.deployment_name.is_empty() && version.build_id.is_empty() {
+        return String::new();
+    }
+    if version.deployment_name.is_empty() {
+        return version.build_id.clone();
+    }
+    if version.build_id.is_empty() {
+        return version.deployment_name.clone();
+    }
+    format!("{}@{}", version.deployment_name, version.build_id)
+}
+
+fn failure_retry_state(failure: &proto::temporal::api::failure::v1::Failure) -> Option<String> {
+    use crate::proto::temporal::api::failure::v1::failure::FailureInfo;
+    let retry_state = match &failure.failure_info {
+        Some(FailureInfo::ActivityFailureInfo(info)) => info.retry_state,
+        Some(FailureInfo::ChildWorkflowExecutionFailureInfo(info)) => info.retry_state,
+        _ => return None,
+    };
+    Some(retry_state_string(retry_state))
+}
+
+fn retry_state_string(retry_state: i32) -> String {
+    use crate::proto::temporal::api::enums::v1::RetryState;
+    RetryState::try_from(retry_state)
+        .map(|s| format!("{:?}", s))
+        .unwrap_or_else(|_| "Unknown".to_string())
 }
 
 fn event_type_name(event_type: i32) -> String {

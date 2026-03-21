@@ -98,4 +98,49 @@ pub trait TemporalClient: Send + Sync {
         namespace: &str,
         task_queue: &str,
     ) -> ClientResult<TaskQueueInfo>;
+
+    async fn list_activity_executions(
+        &self,
+        namespace: &str,
+        query: Option<&str>,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+    ) -> ClientResult<(Vec<ActivityExecutionSummary>, Vec<u8>)>;
+
+    async fn describe_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+    ) -> ClientResult<ActivityExecutionDetail>;
+
+    async fn count_activity_executions(
+        &self,
+        namespace: &str,
+        query: Option<&str>,
+    ) -> ClientResult<u64>;
+
+    async fn request_cancel_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+    ) -> ClientResult<()>;
+
+    async fn terminate_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+        reason: &str,
+    ) -> ClientResult<()>;
+
+    async fn delete_activity_execution(
+        &self,
+        namespace: &str,
+        activity_id: &str,
+        run_id: &str,
+    ) -> ClientResult<()>;
+
+    async fn check_activity_support(&self, namespace: &str) -> ClientResult<bool>;
 }

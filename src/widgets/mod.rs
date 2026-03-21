@@ -1,3 +1,4 @@
+pub mod activity_execution_detail;
 pub mod collection;
 pub mod command_input;
 pub mod confirm_modal;

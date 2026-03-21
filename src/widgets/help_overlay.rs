@@ -21,6 +21,10 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
         view,
         View::Collection(KindId::Schedule) | View::Detail(KindId::Schedule)
     );
+    let is_activity = matches!(
+        view,
+        View::Collection(KindId::ActivityExecution) | View::Detail(KindId::ActivityExecution)
+    );
 
     lines.push(Line::from(""));
     lines.push(section("Navigation"));
@@ -39,6 +43,7 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
     lines.push(binding(": (colon)", "Command mode"));
     lines.push(binding(":wf", "Switch to workflows"));
     lines.push(binding(":sch", "Switch to schedules"));
+    lines.push(binding(":act", "Switch to activities"));
     if is_list {
         lines.push(binding("/ (slash)", "Search"));
     }
@@ -76,6 +81,17 @@ pub fn render(view: &View, frame: &mut Frame, area: Rect) {
             lines.push(binding(key, op.label));
         }
         lines.push(binding("w", "Schedule workflows"));
+    }
+
+    if is_activity {
+        lines.push(Line::from(""));
+        lines.push(section("Activity Actions"));
+        for op in kind_spec(KindId::ActivityExecution).operations {
+            lines.push(binding(op.key.to_string(), op.label));
+        }
+        if is_detail {
+            lines.push(binding("h / l", "Switch detail tabs"));
+        }
     }
 
     lines.push(Line::from(""));
